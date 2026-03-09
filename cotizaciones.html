@@ -1,186 +1,693 @@
-import { useState, useEffect } from "react";
+<!DOCTYPE html>
 
-const C={cream:"#F7F5F2",warm:"#FFFCF9",ink:"#1A1814",inkSoft:"#3D3830",stone:"#8A8178",stoneLight:"#C8C0B8",border:"#E5DED6",teal:"#0D6B72",tealPale:"#E8F4F5",gold:"#B07D2A",goldPale:"#FDF4E3",red:"#C03838",redPale:"#FDEAEA",orange:"#C05C10",orangePale:"#FEF0E6",green:"#1E7A48",greenPale:"#E6F5ED",blue:"#1A5FA8",bluePale:"#E8F0FA"};
-const SURGERY_DB={"Catarata":["Faco + LIO","Faco + LIO + Antiangio","Faco + Trabe","Faco + Vitre"],"Glaucoma":["Trabeculectomía","Trabeculectomía con mitomicina C","Colocación de válvula de Ahmed"],"Retina y Vítreo":["Cerclaje escleral","Vitrectomía","Inyección intravítrea (anti-VEGF)"],"Superficie Ocular":["Excéresis de pterigión con autoinjerto + pegamento de fibrina","Resección de lesión palpebral / conjuntival"],"Láser":["Láser diodo","Láser YAG"]};
-const ALL_SURGERIES=Object.values(SURGERY_DB).flat();
-const LIO_TYPES=["Monofocal hidrofílico","Monofocal hidrofóbico","Tórico","Multifocal","Multifocal tórico","EDOF","EDOF tórico","Acomodativo","Premium personalizado","Otro"];
-const RISK_LEVELS=[{val:"standard",label:"Estándar",color:"#1E7A48",pale:"#E6F5ED",icon:"🟢"},{val:"medium",label:"Medio",color:"#C05C10",pale:"#FEF0E6",icon:"🟡"},{val:"complex",label:"Compleja",color:"#C03838",pale:"#FDEAEA",icon:"🔴"}];
-const fmt=n=>(n!=null&&n!==""&&!isNaN(n))?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(n):null;
-const fmtD=d=>{if(!d)return"";const[y,m,day]=d.split("-");return`${parseInt(day)} ${["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][parseInt(m)-1]} ${y}`;};
-const fmtDL=d=>{if(!d)return"";const[y,m,day]=d.split("-");return`${parseInt(day)} de ${["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"][parseInt(m)-1]} de ${y}`;};
-const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
-const toStr=()=>new Date().toISOString().split("T")[0];
-const isPast=d=>d&&d<toStr();
-const dDiff=d=>{if(!d)return null;return Math.ceil((new Date(d)-new Date())/864e5);};
-const mkEye=()=>({surgery:"",surgeryPlus:[],lioNeeded:false,lioType:"",lioPower:"",lioNotes:"",dateTentative:"",dateScheduled:"",costs:{gastos:"",anest:"",implantes:"",otrosAmt:"",otrosDesc:""}});
-const mkForm=()=>({name:"",tel1:"",tel2:"",activeEyes:[],eyeFirst:"",eyes:{OD:mkEye(),OI:mkEye()},status:"pending",risk:"standard",notes:""});
-const Lbl=({children,req})=><label style={{display:"block",fontSize:"0.71rem",fontWeight:700,color:C.stone,marginBottom:4,letterSpacing:"0.04em",textTransform:"uppercase"}}>{children}{req&&<span style={{color:C.red,marginLeft:3}}>*</span>}</label>;
-const Inp=({err,style,...p})=><input style={{width:"100%",padding:"10px 12px",border:`1.5px solid ${err?C.red:C.border}`,borderRadius:9,fontSize:"0.9rem",color:C.ink,background:err?"#FFF0F0":"white",outline:"none",boxSizing:"border-box",...style}} {...p}/>;
-const Sel=({style,...p})=><select style={{width:"100%",padding:"10px 12px",border:`1.5px solid ${C.border}`,borderRadius:9,fontSize:"0.9rem",color:C.ink,background:"white",outline:"none",boxSizing:"border-box",WebkitAppearance:"none",...style}} {...p}/>;
-const Btn=({variant="primary",style,...p})=>{const V={primary:{background:C.teal,color:"white",border:"none"},outline:{background:"white",color:C.teal,border:`1.5px solid ${C.teal}`},danger:{background:"#FDEAEA",color:C.red,border:"1.5px solid #F0C0C0"}};return<button style={{display:"inline-flex",alignItems:"center",gap:6,padding:"10px 16px",borderRadius:9,fontSize:"0.85rem",fontWeight:700,cursor:"pointer",...V[variant],...style}} {...p}/>;};
-const Sec=({title,children})=><div style={{marginBottom:18}}><div style={{fontSize:"0.66rem",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.12em",color:C.stone,marginBottom:10,paddingBottom:6,borderBottom:`1.5px solid ${C.border}`}}>{title}</div>{children}</div>;
-const Fld=({label,req,err,children})=><div style={{marginBottom:10}}><Lbl req={req}>{label}</Lbl>{children}{err&&<div style={{fontSize:"0.7rem",color:C.red,marginTop:3,fontWeight:600}}>⚠ {err}</div>}</div>;
-const SBadge=({s})=>{const M={pending:{bg:"#FDF4E3",c:"#B07D2A",t:"⏳ Pendiente"},scheduled:{bg:"#E8F4F5",c:"#0D6B72",t:"📅 Programada"},done:{bg:"#E6F5ED",c:"#1E7A48",t:"✅ Operado/a"}};const m=M[s]||M.pending;return<span style={{display:"inline-flex",padding:"3px 9px",borderRadius:20,fontSize:"0.71rem",fontWeight:700,background:m.bg,color:m.c,whiteSpace:"nowrap"}}>{m.t}</span>;};
-const RBadge=({r})=>{const rl=RISK_LEVELS.find(x=>x.val===r)||RISK_LEVELS[0];return<span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 9px",borderRadius:20,fontSize:"0.71rem",fontWeight:700,background:rl.pale,color:rl.color,whiteSpace:"nowrap"}}>{rl.icon} {rl.label}</span>;};
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="COE Cirugías"/>
+<title>COE · Programación Quirúrgica</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{margin:0;padding:0;font-family:'Segoe UI',system-ui,sans-serif;background:#F7F5F2;overscroll-behavior:none;}
+input,select,textarea,button{font-family:inherit;}
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-thumb{background:#C8C0B8;border-radius:4px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media print {
+  .no-print{display:none!important;}
+  body{background:white;}
+  .print-card{break-inside:avoid;border:1.5px solid #ccc!important;box-shadow:none!important;}
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState, useRef, useEffect} = React;
 
-function SPicker({value,onChange,placeholder="Buscar cirugía…"}){
-  const[open,setOpen]=useState(false);const[q,setQ]=useState(value||"");
-  useEffect(()=>setQ(value||""),[value]);
-  const matches=q.length>0?ALL_SURGERIES.filter(s=>s.toLowerCase().includes(q.toLowerCase())).slice(0,10):[];
-  const pick=s=>{onChange(s);setQ(s);setOpen(false);};
-  return(<div style={{position:"relative"}}><Inp value={q} placeholder={placeholder} onChange={e=>{setQ(e.target.value);onChange(e.target.value);setOpen(true);}} onFocus={()=>setOpen(true)} onBlur={()=>setTimeout(()=>setOpen(false),200)}/>{open&&(<div style={{position:"absolute",top:"calc(100% + 2px)",left:0,right:0,background:"white",border:`1.5px solid ${C.border}`,borderRadius:10,boxShadow:"0 8px 28px rgba(0,0,0,0.14)",zIndex:2000,maxHeight:280,overflowY:"auto"}}>{q.length===0&&Object.entries(SURGERY_DB).map(([cat,items])=>(<div key={cat}><div style={{padding:"5px 12px",fontSize:"0.62rem",fontWeight:800,textTransform:"uppercase",color:C.teal,background:C.tealPale,borderBottom:`1px solid ${C.border}`}}>{cat}</div>{items.map(s=><div key={s} onMouseDown={()=>pick(s)} style={{padding:"9px 13px",fontSize:"0.87rem",cursor:"pointer",color:C.inkSoft,borderBottom:`1px solid ${C.border}`}}>{s}</div>)}</div>))}{q.length>0&&matches.map(s=><div key={s} onMouseDown={()=>pick(s)} style={{padding:"9px 13px",fontSize:"0.87rem",cursor:"pointer",color:C.inkSoft,borderBottom:`1px solid ${C.border}`}}>{s}</div>)}{q.length>0&&matches.length===0&&<div style={{padding:"9px 13px",fontSize:"0.83rem",color:C.stone,fontStyle:"italic"}}>Se guardará tal cual</div>}</div>)}</div>);
+const C = {
+cream:”#F7F5F2”, warm:”#FFFCF9”, ink:”#1A1814”, inkSoft:”#3D3830”,
+stone:”#8A8178”, stoneLight:”#C8C0B8”, border:”#E5DED6”,
+teal:”#0D6B72”, tealPale:”#E8F4F5”,
+gold:”#B07D2A”, goldPale:”#FDF4E3”,
+red:”#C03838”, redPale:”#FDEAEA”,
+orange:”#C05C10”, orangePale:”#FEF0E6”,
+green:”#1E7A48”, greenPale:”#E6F5ED”,
+blue:”#1A5FA8”, bluePale:”#E8F0FA”,
+purple:”#6B3FA0”, purplePale:”#F0EAF8”,
+};
+
+const SURGERY_DB = {
+“Catarata”: [“Faco + LIO”,“Faco + LIO + Antiangio”,“Faco + Trabe”,“Faco + Vitre”],
+“Glaucoma”: [“Trabeculectomía”,“Trabeculectomía con mitomicina C”,“Colocación de válvula de Ahmed”],
+“Retina y Vítreo”: [“Cerclaje escleral”,“Vitrectomía”,“Inyección intravítrea (anti-VEGF)”],
+“Superficie Ocular”: [“Excéresis de pterigión con autoinjerto + pegamento de fibrina”,“Resección de lesión palpebral / conjuntival”],
+“Láser”: [“Láser diodo”,“Láser YAG”],
+};
+const ALL_SURGERIES = Object.values(SURGERY_DB).flat();
+const LIO_TYPES = [“Monofocal hidrofílico”,“Monofocal hidrofóbico”,“Tórico”,“Multifocal”,“Multifocal tórico”,“EDOF”,“EDOF tórico”,“Acomodativo”,“Premium personalizado”,“Otro”];
+const RISK_LEVELS = [
+{val:“standard”, label:“Estándar”, color:C.green,  pale:C.greenPale,  icon:“🟢”},
+{val:“medium”,   label:“Medio”,    color:C.orange, pale:C.orangePale, icon:“🟡”},
+{val:“complex”,  label:“Compleja”, color:C.red,    pale:C.redPale,    icon:“🔴”},
+];
+const BACKUP_EMAIL = “drvillegas.ta@gmail.com”;
+
+const fmt    = (n) => (n!=null&&n!==””&&!isNaN(n)) ? new Intl.NumberFormat(“es-MX”,{style:“currency”,currency:“MXN”}).format(n) : null;
+const fmtD   = (d) => { if(!d) return “”; const [y,m,day]=d.split(”-”); return `${parseInt(day)} ${["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][parseInt(m)-1]} ${y}`; };
+const fmtDLong = (d) => { if(!d) return “”; const [y,m,day]=d.split(”-”); return `${parseInt(day)} de ${["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"][parseInt(m)-1]} de ${y}`; };
+const uid    = () => Date.now().toString(36)+Math.random().toString(36).slice(2);
+const toStr  = () => new Date().toISOString().split(“T”)[0];
+const isPast = (d) => d && d < toStr();
+const dDiff  = (d) => { if(!d) return null; return Math.ceil((new Date(d)-new Date())/864e5); };
+
+const mkEye  = () => ({surgery:””,surgeryPlus:[],lioNeeded:false,lioType:””,lioPower:””,lioNotes:””,dateTentative:””,dateScheduled:””,costs:{gastos:””,anest:””,implantes:””,otrosAmt:””,otrosDesc:””}});
+const mkForm = () => ({name:””,tel1:””,tel2:””,activeEyes:[],eyeFirst:””,eyes:{OD:mkEye(),OI:mkEye()},status:“pending”,risk:“standard”,notes:””});
+
+// ── UI BASE ─────────────────────────────────────────────────
+const Lbl = ({children,req}) => <label style={{display:“block”,fontSize:“0.71rem”,fontWeight:700,color:C.stone,marginBottom:4,letterSpacing:“0.04em”,textTransform:“uppercase”}}>{children}{req&&<span style={{color:C.red,marginLeft:3}}>*</span>}</label>;
+const Inp = ({err,style,…p}) => <input style={{width:“100%”,padding:“11px 12px”,border:`1.5px solid ${err?C.red:C.border}`,borderRadius:9,fontSize:“16px”,color:C.ink,background:err?”#FFF0F0”:“white”,outline:“none”,boxSizing:“border-box”,…style}} {…p}/>;
+const Sel = ({err,style,…p}) => <select style={{width:“100%”,padding:“11px 12px”,border:`1.5px solid ${err?C.red:C.border}`,borderRadius:9,fontSize:“16px”,color:C.ink,background:err?”#FFF0F0”:“white”,outline:“none”,boxSizing:“border-box”,WebkitAppearance:“none”,…style}} {…p}/>;
+const Btn = ({variant=“primary”,style,…p}) => {
+const V={primary:{background:C.teal,color:“white”,border:“none”},outline:{background:“white”,color:C.teal,border:`1.5px solid ${C.teal}`},danger:{background:C.redPale,color:C.red,border:`1.5px solid #F0C0C0`},green:{background:C.green,color:“white”,border:“none”}};
+return <button style={{display:“inline-flex”,alignItems:“center”,gap:6,padding:“11px 16px”,borderRadius:9,fontSize:“0.85rem”,fontWeight:700,cursor:“pointer”,…V[variant],…style}} {…p}/>;
+};
+const Sec = ({title,children}) => <div style={{marginBottom:18}}><div style={{fontSize:“0.66rem”,fontWeight:800,textTransform:“uppercase”,letterSpacing:“0.12em”,color:C.stone,marginBottom:10,paddingBottom:6,borderBottom:`1.5px solid ${C.border}`}}>{title}</div>{children}</div>;
+const Fld = ({label,req,hint,err,children}) => <div style={{marginBottom:10}}><Lbl req={req}>{label}</Lbl>{children}{err&&<div style={{fontSize:“0.7rem”,color:C.red,marginTop:3,fontWeight:600}}>⚠ {err}</div>}{!err&&hint&&<div style={{fontSize:“0.7rem”,color:C.stone,marginTop:3}}>{hint}</div>}</div>;
+
+const StatusBadge = ({s}) => {
+const M={pending:{bg:C.goldPale,c:C.gold,t:“⏳ Pendiente”},scheduled:{bg:C.tealPale,c:C.teal,t:“📅 Programada”},done:{bg:C.greenPale,c:C.green,t:“✅ Operado/a”}};
+const m=M[s]||M.pending;
+return <span style={{display:“inline-flex”,padding:“3px 9px”,borderRadius:20,fontSize:“0.71rem”,fontWeight:700,background:m.bg,color:m.c,whiteSpace:“nowrap”}}>{m.t}</span>;
+};
+
+const RiskBadge = ({r}) => {
+const rl = RISK_LEVELS.find(x=>x.val===r)||RISK_LEVELS[0];
+return <span style={{display:“inline-flex”,alignItems:“center”,gap:4,padding:“3px 9px”,borderRadius:20,fontSize:“0.71rem”,fontWeight:700,background:rl.pale,color:rl.color,whiteSpace:“nowrap”}}>{rl.icon} {rl.label}</span>;
+};
+
+// ── SURGERY PICKER ──────────────────────────────────────────
+function SurgeryPicker({value, onChange, placeholder=“Buscar cirugía…”}) {
+const [open,setOpen] = useState(false);
+const [q,setQ] = useState(value||””);
+useEffect(()=>setQ(value||””),[value]);
+const matches = q.length>0 ? ALL_SURGERIES.filter(s=>s.toLowerCase().includes(q.toLowerCase())).slice(0,10) : [];
+const pick=(s)=>{ onChange(s); setQ(s); setOpen(false); };
+return (
+<div style={{position:“relative”}}>
+<Inp value={q} placeholder={placeholder}
+onChange={e=>{setQ(e.target.value);onChange(e.target.value);setOpen(true);}}
+onFocus={()=>setOpen(true)} onBlur={()=>setTimeout(()=>setOpen(false),200)}/>
+{open&&(
+<div style={{position:“absolute”,top:“calc(100% + 2px)”,left:0,right:0,background:“white”,border:`1.5px solid ${C.border}`,borderRadius:10,boxShadow:“0 8px 28px rgba(0,0,0,0.14)”,zIndex:2000,maxHeight:280,overflowY:“auto”}}>
+{q.length===0 && Object.entries(SURGERY_DB).map(([cat,items])=>(
+<div key={cat}>
+<div style={{padding:“5px 12px”,fontSize:“0.62rem”,fontWeight:800,textTransform:“uppercase”,color:C.teal,background:C.tealPale,borderBottom:`1px solid ${C.border}`}}>{cat}</div>
+{items.map(s=><div key={s} onMouseDown={()=>pick(s)} onTouchEnd={e=>{e.preventDefault();pick(s);}} style={{padding:“10px 13px”,fontSize:“0.9rem”,cursor:“pointer”,color:C.inkSoft,borderBottom:`1px solid ${C.border}`}}>{s}</div>)}
+</div>
+))}
+{q.length>0 && matches.map(s=><div key={s} onMouseDown={()=>pick(s)} onTouchEnd={e=>{e.preventDefault();pick(s);}} style={{padding:“10px 13px”,fontSize:“0.9rem”,cursor:“pointer”,color:C.inkSoft,borderBottom:`1px solid ${C.border}`}}>{s}</div>)}
+{q.length>0 && matches.length===0 && <div style={{padding:“10px 13px”,fontSize:“0.85rem”,color:C.stone,fontStyle:“italic”}}>Sin coincidencias — se guardará tal cual</div>}
+</div>
+)}
+</div>
+);
 }
 
-function EyePanel({data,onChange,errors={}}){
-  const[pi,setPi]=useState("");
-  const upd=(k,v)=>onChange({...data,[k]:v});
-  const upC=(k,v)=>onChange({...data,costs:{...data.costs,[k]:v}});
-  const total=["gastos","anest","implantes","otrosAmt"].reduce((s,k)=>s+(parseFloat(data.costs?.[k])||0),0);
-  const noA=!data.costs?.anest||data.costs.anest==="";
-  return(<div style={{background:C.cream,borderRadius:12,padding:14,border:`1.5px solid ${C.border}`}}>
-    <Fld label="Procedimiento" req err={errors.surgery}><SPicker value={data.surgery||""} onChange={v=>upd("surgery",v)}/></Fld>
-    <div style={{marginBottom:14}}><Lbl>Simultáneos</Lbl><div style={{display:"flex",gap:7}}><div style={{flex:1}}><SPicker value={pi} onChange={setPi} placeholder="Agregar simultáneo…"/></div><Btn variant="outline" style={{padding:"9px 13px"}} onClick={()=>{if(!pi.trim())return;upd("surgeryPlus",[...(data.surgeryPlus||[]),pi.trim()]);setPi("");}}>+</Btn></div><div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:6}}>{(data.surgeryPlus||[]).map((p,i)=>(<span key={i} style={{background:C.tealPale,color:C.teal,borderRadius:6,padding:"3px 8px",fontSize:"0.77rem",fontWeight:700,display:"flex",alignItems:"center",gap:4}}>+{p}<button onMouseDown={()=>upd("surgeryPlus",(data.surgeryPlus||[]).filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.teal,cursor:"pointer",padding:0}}>✕</button></span>))}</div></div>
-    <div style={{paddingTop:12,borderTop:`1px solid ${C.border}`,marginBottom:14}}><label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:"0.9rem",fontWeight:600,marginBottom:data.lioNeeded?10:0}}><input type="checkbox" checked={!!data.lioNeeded} onChange={e=>upd("lioNeeded",e.target.checked)} style={{width:18,height:18,accentColor:C.teal}}/>🔬 Lente intraocular (LIO)</label>{data.lioNeeded&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:8}}><Fld label="Tipo"><Sel value={data.lioType||""} onChange={e=>upd("lioType",e.target.value)}><option value="">Seleccionar…</option>{LIO_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</Sel></Fld><Fld label="Potencia"><Inp value={data.lioPower||""} onChange={e=>upd("lioPower",e.target.value)} placeholder="+21.50"/></Fld><div style={{gridColumn:"1/-1"}}><Fld label="Marca/Modelo"><Inp value={data.lioNotes||""} onChange={e=>upd("lioNotes",e.target.value)} placeholder="Alcon AcrySof…"/></Fld></div></div>}</div>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,paddingTop:12,borderTop:`1px solid ${C.border}`,marginBottom:14}}><Fld label="Fecha tentativa"><Inp type="date" value={data.dateTentative||""} onChange={e=>upd("dateTentative",e.target.value)}/></Fld><Fld label="Fecha programada"><Inp type="date" value={data.dateScheduled||""} onChange={e=>upd("dateScheduled",e.target.value)} style={{borderColor:data.dateScheduled?C.teal:C.border}}/></Fld></div>
-    <div style={{paddingTop:12,borderTop:`1px solid ${C.border}`}}><div style={{fontSize:"0.66rem",fontWeight:800,textTransform:"uppercase",color:C.stone,marginBottom:7}}>💰 Cotización</div><div style={{border:`1px solid ${C.border}`,borderRadius:9,overflow:"hidden"}}>{[["gastos","Gastos"],["anest","Anestesiólogo"],["implantes","Implantes"],["otrosAmt","Otros"]].map(([k,label])=>(<div key={k} style={{display:"grid",gridTemplateColumns:"1fr 110px",borderBottom:`1px solid ${C.border}`}}><div style={{padding:"9px 12px",fontSize:"0.84rem",borderRight:`1px solid ${C.border}`,background:k==="anest"&&noA?"#FEF0E6":C.cream,fontWeight:k==="anest"?700:500,color:k==="anest"&&noA?C.orange:C.inkSoft,display:"flex",alignItems:"center"}}>{k==="anest"&&noA?"⚠️ ":""}{label}</div><input type="number" placeholder="0.00" value={data.costs?.[k]||""} onChange={e=>upC(k,e.target.value)} style={{border:"none",background:"white",padding:"9px 12px",fontWeight:700,textAlign:"right",fontFamily:"inherit",fontSize:"0.9rem",outline:"none",width:"100%"}}/></div>))}<div style={{borderBottom:`1px solid ${C.border}`}}><input type="text" placeholder="Descripción otros…" value={data.costs?.otrosDesc||""} onChange={e=>upC("otrosDesc",e.target.value)} style={{width:"100%",border:"none",background:"#FAFAF8",padding:"7px 12px",fontSize:"0.82rem",color:C.inkSoft,outline:"none",boxSizing:"border-box"}}/></div><div style={{display:"grid",gridTemplateColumns:"1fr 110px",background:C.ink}}><div style={{padding:"9px 12px",fontWeight:800,color:"rgba(255,255,255,0.5)",borderRight:"1px solid rgba(255,255,255,0.1)",fontSize:"0.82rem"}}>TOTAL</div><div style={{padding:"9px 12px",fontWeight:800,textAlign:"right",color:"#7EC8C8"}}>{fmt(total)||"$0.00"}</div></div></div></div>
-  </div>);
+// ── EYE PANEL ───────────────────────────────────────────────
+function EyePanel({data, onChange, errors={}}) {
+const [plusInput,setPlusInput] = useState(””);
+const upd=(k,v)=>onChange({…data,[k]:v});
+const upC=(k,v)=>onChange({…data,costs:{…data.costs,[k]:v}});
+const addPlus=()=>{ if(!plusInput.trim())return; upd(“surgeryPlus”,[…(data.surgeryPlus||[]),plusInput.trim()]); setPlusInput(””); };
+const remPlus=(i)=>upd(“surgeryPlus”,(data.surgeryPlus||[]).filter((_,j)=>j!==i));
+const total=[“gastos”,“anest”,“implantes”,“otrosAmt”].reduce((s,k)=>s+(parseFloat(data.costs?.[k])||0),0);
+const noAnest=!data.costs?.anest||data.costs.anest===””;
+return (
+<div style={{background:C.cream,borderRadius:12,padding:14,border:`1.5px solid ${C.border}`}}>
+<Fld label="Procedimiento" req err={errors.surgery}>
+<SurgeryPicker value={data.surgery||””} onChange={v=>upd(“surgery”,v)}/>
+</Fld>
+<div style={{marginBottom:14}}>
+<Lbl>Simultáneos <span style={{fontWeight:400,textTransform:“none”,fontStyle:“italic”}}>(+)</span></Lbl>
+<div style={{display:“flex”,gap:7}}>
+<div style={{flex:1}}><SurgeryPicker value={plusInput} onChange={setPlusInput} placeholder="Agregar simultáneo…"/></div>
+<Btn variant=“outline” style={{padding:“10px 13px”}} onClick={addPlus}>+ Agregar</Btn>
+</div>
+<div style={{display:“flex”,flexWrap:“wrap”,gap:5,marginTop:6}}>
+{(data.surgeryPlus||[]).map((p,i)=>(
+<span key={i} style={{background:C.tealPale,color:C.teal,borderRadius:6,padding:“3px 9px”,fontSize:“0.8rem”,fontWeight:700,display:“flex”,alignItems:“center”,gap:5}}>
+<span style={{opacity:0.5}}>+</span>{p}
+<button onMouseDown={()=>remPlus(i)} style={{background:“none”,border:“none”,color:C.teal,cursor:“pointer”,padding:0,fontSize:“1rem”,lineHeight:1,opacity:0.6}}>✕</button>
+</span>
+))}
+</div>
+</div>
+<div style={{paddingTop:12,borderTop:`1px solid ${C.border}`,marginBottom:14}}>
+<label style={{display:“flex”,alignItems:“center”,gap:8,cursor:“pointer”,fontSize:“0.9rem”,fontWeight:600,marginBottom:data.lioNeeded?10:0}}>
+<input type=“checkbox” checked={!!data.lioNeeded} onChange={e=>upd(“lioNeeded”,e.target.checked)} style={{width:18,height:18,accentColor:C.teal}}/>
+🔬 Lente intraocular (LIO)
+</label>
+{data.lioNeeded&&(
+<div style={{display:“grid”,gridTemplateColumns:“1fr 1fr”,gap:10,marginTop:8}}>
+<Fld label="Tipo de LIO"><Sel value={data.lioType||””} onChange={e=>upd(“lioType”,e.target.value)}><option value="">Seleccionar…</option>{LIO_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</Sel></Fld>
+<Fld label="Potencia" hint="Ej: +21.50 D"><Inp value={data.lioPower||””} onChange={e=>upd(“lioPower”,e.target.value)} placeholder=”+21.50”/></Fld>
+<div style={{gridColumn:“1/-1”}}><Fld label="Marca / Modelo"><Inp value={data.lioNotes||””} onChange={e=>upd(“lioNotes”,e.target.value)} placeholder=“Ej. Alcon AcrySof”/></Fld></div>
+</div>
+)}
+</div>
+<div style={{display:“grid”,gridTemplateColumns:“1fr 1fr”,gap:10,paddingTop:12,borderTop:`1px solid ${C.border}`,marginBottom:14}}>
+<Fld label="Fecha tentativa" hint="Estimada"><Inp type=“date” value={data.dateTentative||””} onChange={e=>upd(“dateTentative”,e.target.value)}/></Fld>
+<Fld label="Fecha programada" hint="Confirmada"><Inp type=“date” value={data.dateScheduled||””} onChange={e=>upd(“dateScheduled”,e.target.value)} style={{borderColor:data.dateScheduled?C.teal:C.border,fontWeight:data.dateScheduled?700:400}}/></Fld>
+</div>
+<div style={{paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+<div style={{fontSize:“0.66rem”,fontWeight:800,textTransform:“uppercase”,letterSpacing:“0.1em”,color:C.stone,marginBottom:7}}>💰 Cotización</div>
+<div style={{border:`1px solid ${C.border}`,borderRadius:9,overflow:“hidden”}}>
+{[[“gastos”,“Gastos”],[“anest”,“Anestesiólogo”],[“implantes”,“Implantes / Material”],[“otrosAmt”,“Otros”]].map(([k,label])=>(
+<div key={k} style={{display:“grid”,gridTemplateColumns:“1fr 120px”,borderBottom:`1px solid ${C.border}`}}>
+<div style={{padding:“10px 12px”,fontSize:“0.84rem”,borderRight:`1px solid ${C.border}`,background:k===“anest”&&noAnest?C.orangePale:C.cream,fontWeight:k===“anest”?700:500,color:k===“anest”&&noAnest?C.orange:C.inkSoft,display:“flex”,alignItems:“center”}}>
+{k===“anest”&&noAnest?“⚠️ “:””}{label}
+</div>
+<input type=“number” placeholder={k===“anest”?“Pendiente”:“0.00”} value={data.costs?.[k]||””} onChange={e=>upC(k,e.target.value)}
+style={{border:“none”,background:k===“anest”&&noAnest?”#FEF8F0”:“white”,padding:“10px 12px”,fontWeight:700,textAlign:“right”,fontFamily:“inherit”,fontSize:“0.9rem”,outline:“none”,width:“100%”}}/>
+</div>
+))}
+<div style={{borderBottom:`1px solid ${C.border}`}}>
+<input type=“text” placeholder=“Descripción de otros gastos…” value={data.costs?.otrosDesc||””} onChange={e=>upC(“otrosDesc”,e.target.value)}
+style={{width:“100%”,border:“none”,background:”#FAFAF8”,padding:“8px 12px”,fontSize:“0.82rem”,color:C.inkSoft,outline:“none”,boxSizing:“border-box”}}/>
+</div>
+<div style={{display:“grid”,gridTemplateColumns:“1fr 120px”,background:C.ink}}>
+<div style={{padding:“10px 12px”,fontWeight:800,color:“rgba(255,255,255,0.55)”,borderRight:“1px solid rgba(255,255,255,0.1)”,fontSize:“0.82rem”}}>TOTAL</div>
+<div style={{padding:“10px 12px”,fontWeight:800,textAlign:“right”,color:”#7EC8C8”,fontSize:“0.93rem”}}>{fmt(total)||”$0.00”}</div>
+</div>
+</div>
+</div>
+</div>
+);
 }
 
-function Daily({records}){
-  const[d,setD]=useState(toStr());
-  const pts=records.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===d));
-  const title=dt=>{if(!dt)return"";const[y,m,day]=dt.split("-");const days=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];const date=new Date(parseInt(y),parseInt(m)-1,parseInt(day));return`${days[date.getDay()]}, ${fmtDL(dt)}`;};
-  return(<div>
-    <div style={{display:"flex",gap:10,alignItems:"flex-end",marginBottom:16,flexWrap:"wrap"}}><div style={{flex:1}}><Fld label="Fecha"><Inp type="date" value={d} onChange={e=>setD(e.target.value)} style={{maxWidth:220}}/></Fld></div><Btn variant="outline" onClick={()=>window.print()}>🖨️ Imprimir</Btn></div>
-    <div style={{marginBottom:16,paddingBottom:12,borderBottom:`2px solid ${C.border}`}}><div style={{fontWeight:800,fontSize:"1.05rem"}}>Centro Ocular Especializado</div><div style={{fontSize:"0.85rem",color:C.stone}}>Dr. José Antonio Villegas Ávila</div><div style={{fontWeight:700,color:C.teal,marginTop:4}}>Programación Quirúrgica — {title(d)}</div><div style={{fontSize:"0.8rem",color:C.stone,marginTop:2}}>{pts.length} paciente{pts.length!==1?"s":""} programado{pts.length!==1?"s":""}</div></div>
-    {pts.length===0
-      ?<div style={{textAlign:"center",padding:"44px 24px",color:C.stone}}><div style={{fontSize:"2.5rem",marginBottom:10,opacity:0.3}}>📅</div><div style={{fontWeight:700}}>Sin cirugías para este día</div></div>
-      :<div style={{display:"grid",gap:14}}>{pts.map((r,i)=>{
-        const eyes=(r.activeEyes||[]).filter(eye=>r.eyes?.[eye]?.dateScheduled===d);
-        const rl=RISK_LEVELS.find(x=>x.val===r.risk)||RISK_LEVELS[0];
-        return(<div key={r.id} style={{background:"white",borderRadius:14,border:`2px solid ${rl.color}33`,overflow:"hidden"}}>
-          <div style={{background:rl.pale,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,borderBottom:`1.5px solid ${rl.color}22`}}>
-            <div style={{display:"flex",alignItems:"center",gap:12}}><div style={{width:32,height:32,borderRadius:"50%",background:rl.color,color:"white",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,flexShrink:0}}>{i+1}</div><div><div style={{fontWeight:800,fontSize:"1.05rem"}}>{r.name}</div><div style={{fontSize:"0.75rem",color:C.stone}}>{[r.tel1,r.tel2].filter(Boolean).join(" · ")}</div></div></div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}><RBadge r={r.risk}/>{eyes.map(eye=><span key={eye} style={{padding:"3px 10px",borderRadius:20,fontSize:"0.75rem",fontWeight:800,background:eye==="OD"?C.tealPale:C.bluePale,color:eye==="OD"?C.teal:C.blue}}>👁 {eye}</span>)}{r.eyeFirst&&eyes.length>1&&<span style={{fontSize:"0.72rem",color:C.stone}}>inicia {r.eyeFirst}</span>}</div>
-          </div>
-          <div style={{padding:"14px 16px",display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
-            {eyes.map(eye=>{const ed=r.eyes?.[eye]||{};const c=ed.costs||{};const et=["gastos","anest","implantes","otrosAmt"].reduce((s,k)=>s+(parseFloat(c[k])||0),0);const na=!c.anest||c.anest==="";
-              return(<div key={eye} style={{background:C.cream,borderRadius:10,padding:"12px 14px",border:`1px solid ${eye==="OD"?C.tealPale:C.bluePale}`}}>
-                <div style={{fontSize:"0.68rem",fontWeight:800,textTransform:"uppercase",color:eye==="OD"?C.teal:C.blue,marginBottom:8}}>👁 {eye} — {eye==="OD"?"Ojo Derecho":"Ojo Izquierdo"}</div>
-                <div style={{fontWeight:700,marginBottom:4}}>{ed.surgery||<span style={{color:C.stone,fontStyle:"italic"}}>Sin definir</span>}</div>
-                {(ed.surgeryPlus||[]).map((p,j)=><span key={j} style={{display:"inline-block",background:C.tealPale,color:C.teal,borderRadius:4,padding:"1px 7px",fontSize:"0.72rem",fontWeight:700,marginRight:4}}>+ {p}</span>)}
-                {ed.lioNeeded&&<div style={{marginTop:6,padding:"6px 10px",background:"#E8F0FA",borderRadius:7,fontSize:"0.78rem",color:C.blue,fontWeight:600}}>🔬 {ed.lioType||"—"}{ed.lioPower?` · ${ed.lioPower}D`:""}</div>}
-                <div style={{marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}`,display:"grid",gap:3}}>
-                  {[["Gastos",c.gastos],["Anestesiólogo",c.anest],["Implantes",c.implantes]].map(([lb,v])=>(<div key={lb} style={{display:"flex",justifyContent:"space-between",fontSize:"0.78rem"}}><span style={{color:lb==="Anestesiólogo"&&na?C.orange:C.stone}}>{lb==="Anestesiólogo"&&na?"⚠️ ":""}{lb}</span><span style={{fontWeight:700}}>{fmt(v)||"—"}</span></div>))}
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.82rem",paddingTop:5,borderTop:`1px solid ${C.border}`,marginTop:3}}><span style={{fontWeight:800}}>Total</span><span style={{fontWeight:800,color:C.teal}}>{fmt(et)||"$0.00"}</span></div>
-                </div>
-              </div>);
-            })}
-          </div>
-          {r.notes&&<div style={{padding:"8px 16px 12px",borderTop:`1px solid ${C.border}`}}><span style={{fontSize:"0.75rem",color:C.stone,fontWeight:700}}>Notas: </span><span style={{fontSize:"0.78rem"}}>{r.notes}</span></div>}
-        </div>);
-      })}</div>
-    }
-  </div>);
-}
+// ── DAILY SCHEDULE VIEW ─────────────────────────────────────
+function DailySchedule({records}) {
+const [selectedDate, setSelectedDate] = useState(toStr());
 
-export default function App(){
-  const[tab,setTab]=useState("list");
-  const[records,setRecords]=useState([]);
-  const[filter,setFilter]=useState("all");
-  const[search,setSearch]=useState("");
-  const[modal,setModal]=useState(null);
-  const[form,setForm]=useState(mkForm);
-  const[errors,setErrors]=useState({});
+const dayPatients = records.filter(r => {
+const eyes = r.activeEyes||[];
+return eyes.some(eye => r.eyes?.[eye]?.dateScheduled === selectedDate);
+}).sort((a,b)=>{
+// sort by eye first scheduled
+const getT = r => (r.activeEyes||[]).map(e=>r.eyes?.[e]?.dateScheduled).filter(Boolean)[0]||””;
+return getT(a).localeCompare(getT(b));
+});
 
-  useEffect(()=>{try{setRecords(JSON.parse(localStorage.getItem("oftalmo-v2")||"[]"));}catch{}}, []);
+const printPage = () => window.print();
 
-  const auto=rs=>rs.map(r=>{if(r.status!=="scheduled")return r;const a=r.activeEyes||[];return a.length>0&&a.every(e=>{const d=r.eyes?.[e]?.dateScheduled;return d&&isPast(d);})?{...r,status:"done"}:r;});
-  const persist=rs=>{const u=auto(rs);localStorage.setItem("oftalmo-v2",JSON.stringify(u));setRecords(u);};
-  const live=auto(records);
-  const stats={total:records.length,pending:live.filter(r=>r.status==="pending").length,done:live.filter(r=>r.status==="done").length,noAnest:live.filter(r=>r.status!=="done"&&(r.activeEyes||[]).some(e=>!r.eyes?.[e]?.costs?.anest)).length};
-  const filtered=live.filter(r=>{const q=search.toLowerCase();const st=(r.activeEyes||[]).map(e=>r.eyes?.[e]?.surgery||"").join(" ").toLowerCase();return(!q||r.name.toLowerCase().includes(q)||st.includes(q))&&(filter==="all"||r.status===filter||(filter==="noAnest"&&r.status!=="done"&&(r.activeEyes||[]).some(e=>!r.eyes?.[e]?.costs?.anest)));}).sort((a,b)=>{const B=r=>(r.activeEyes||[]).map(e=>r.eyes?.[e]?.dateScheduled||r.eyes?.[e]?.dateTentative).filter(Boolean).sort()[0];const dA=B(a),dB=B(b);if(!dA&&!dB)return 0;if(!dA)return 1;if(!dB)return-1;return new Date(dA)-new Date(dB);});
-  const openNew=pre=>{setForm(pre||mkForm());setErrors({});setModal("new");};
-  const openEdit=r=>{setForm({...mkForm(),...r,eyes:{OD:{...mkEye(),...(r.eyes?.OD||{}),costs:{...mkEye().costs,...(r.eyes?.OD?.costs||{})},surgeryPlus:[...(r.eyes?.OD?.surgeryPlus||[])]},OI:{...mkEye(),...(r.eyes?.OI||{}),costs:{...mkEye().costs,...(r.eyes?.OI?.costs||{})},surgeryPlus:[...(r.eyes?.OI?.surgeryPlus||[])]}}}); setErrors({});setModal(r.id);};
-  const close=()=>setModal(null);
-  const setF=(k,v)=>setForm(f=>({...f,[k]:v}));
-  const setE=(eye,d)=>setForm(f=>({...f,eyes:{...f.eyes,[eye]:d}}));
-  const clr=(...ks)=>setErrors(e=>{const n={...e};ks.forEach(k=>delete n[k]);return n;});
-  const tog=eye=>{const c=form.activeEyes||[];setF("activeEyes",c.includes(eye)?c.filter(e=>e!==eye):[...c,eye].sort());clr("activeEyes");};
-  const validate=()=>{const e={};if(!form.name.trim())e.name="Nombre obligatorio";if(!form.tel1.trim())e.tel1="Teléfono 1 obligatorio";if(!form.tel2.trim())e.tel2="Teléfono 2 obligatorio";if(!(form.activeEyes||[]).length)e.activeEyes="Selecciona al menos un ojo";(form.activeEyes||[]).forEach(eye=>{if(!form.eyes?.[eye]?.surgery)e[`${eye}_s`]=`Procedimiento ${eye} obligatorio`;});return e;};
-  const saveRec=()=>{const e=validate();if(Object.keys(e).length){setErrors(e);return;}const rec={...form,id:modal==="new"?uid():modal};persist(modal==="new"?[rec,...records]:records.map(r=>r.id===modal?rec:r));close();};
-  const del=()=>{if(!confirm("¿Eliminar?"))return;persist(records.filter(r=>r.id!==modal));close();};
-  const dCol=d=>{const n=dDiff(d);if(n===null)return C.stone;if(n<0)return C.red;if(n<=7)return C.orange;if(n<=30)return C.gold;return C.green;};
-  const eKeys=Object.keys(errors).filter(k=>errors[k]);
+const fmtDayTitle = (d) => {
+if(!d) return “”;
+const [y,m,day] = d.split(”-”);
+const days = [“Domingo”,“Lunes”,“Martes”,“Miércoles”,“Jueves”,“Viernes”,“Sábado”];
+const date = new Date(parseInt(y), parseInt(m)-1, parseInt(day));
+return `${days[date.getDay()]}, ${fmtDLong(d)}`;
+};
 
-  return(
-    <div style={{fontFamily:"system-ui,sans-serif",background:C.cream,minHeight:"100vh",color:C.ink}}>
-      <div style={{background:C.ink,color:"white",padding:"12px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100}}>
-        <div style={{fontWeight:800,fontSize:"1rem"}}>👁 COE <span style={{color:"#7EC8C8"}}>·</span> Cirugías</div>
-        <div style={{display:"flex",gap:14}}>{[["total","Total","#C8C0B8"],["pending","Pend.","#B07D2A"],["noAnest","Anest.","#C05C10"],["done","Op.","#7EC8C8"]].map(([k,l,c])=>(<div key={k} style={{textAlign:"center"}}><div style={{fontSize:"1rem",fontWeight:800,color:c,lineHeight:1}}>{stats[k]}</div><div style={{fontSize:"0.55rem",color:"#C8C0B8",textTransform:"uppercase"}}>{l}</div></div>))}</div>
-      </div>
-      <div style={{display:"flex",background:"white",borderBottom:`1px solid ${C.border}`,padding:"0 14px",gap:2}}>
-        {[["list","📋 Cotizaciones"],["day","🗓 Prog. del día"]].map(([k,l])=>(<button key={k} onClick={()=>setTab(k)} style={{padding:"12px 14px",fontSize:"0.83rem",fontWeight:tab===k?800:500,color:tab===k?C.teal:C.stone,background:"none",border:"none",borderBottom:`3px solid ${tab===k?C.teal:"transparent"}`,cursor:"pointer",whiteSpace:"nowrap"}}>{l}</button>))}
-      </div>
-      <div style={{padding:14,maxWidth:1100,margin:"0 auto"}}>
-        {tab==="list"&&(<div>
-          {stats.noAnest>0&&<div style={{background:"#FEF0E6",border:"1.5px solid #F0C090",borderRadius:11,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,cursor:"pointer"}} onClick={()=>setFilter("noAnest")}><span>⚠️</span><span style={{fontWeight:700,color:C.orange}}>{stats.noAnest} paciente{stats.noAnest>1?"s":""} sin anestesia</span></div>}
-          <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
-            <Btn onClick={()=>openNew()}>＋ Nueva</Btn>
-            <input style={{flex:1,minWidth:140,padding:"10px 12px",border:`1.5px solid ${C.border}`,borderRadius:9,fontSize:"0.88rem",outline:"none"}} placeholder="Buscar…" value={search} onChange={e=>setSearch(e.target.value)}/>
-          </div>
-          <div style={{display:"flex",gap:7,marginBottom:12,flexWrap:"wrap"}}>{[["all","Todos"],["pending","⏳ Pendientes"],["scheduled","📅 Programados"],["done","✅ Operados"],["noAnest","⚠️ Sin anestesia"]].map(([k,l])=>(<button key={k} onClick={()=>setFilter(k)} style={{padding:"5px 12px",borderRadius:20,fontSize:"0.76rem",fontWeight:700,cursor:"pointer",border:`1.5px solid ${filter===k?C.teal:C.border}`,background:filter===k?C.teal:"white",color:filter===k?"white":C.stone}}>{l}</button>))}</div>
-          <div style={{background:"white",borderRadius:13,border:`1px solid ${C.border}`,overflow:"hidden"}}>
-            {filtered.length===0
-              ?<div style={{textAlign:"center",padding:"40px 24px",color:C.stone}}><div style={{fontSize:"2.5rem",marginBottom:10,opacity:0.3}}>👁</div><div style={{fontWeight:700,marginBottom:6}}>Sin cotizaciones</div><div style={{fontSize:"0.85rem",marginBottom:16}}>Toca "+ Nueva" para agregar tu primer paciente.</div><Btn onClick={()=>openNew()}>＋ Nueva cotización</Btn></div>
-              :<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:"0.84rem"}}>
-                <thead><tr style={{background:C.ink}}>{["Paciente","Riesgo","Ojo","Cirugía","Fecha","Total","An.","Estado"].map(h=><th key={h} style={{padding:"9px 12px",textAlign:"left",fontSize:"0.6rem",fontWeight:800,textTransform:"uppercase",color:"#C8C0B8",whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
-                <tbody>{filtered.map((r,i)=>{
-                  const eyes=r.activeEyes||[];const best=eyes.map(e=>r.eyes?.[e]?.dateScheduled||r.eyes?.[e]?.dateTentative).filter(Boolean).sort()[0];const dias=dDiff(best);const total=eyes.reduce((s,e)=>{const c=r.eyes?.[e]?.costs||{};return s+["gastos","anest","implantes","otrosAmt"].reduce((ss,k)=>ss+(parseFloat(c[k])||0),0);},0);const noA=eyes.some(e=>!r.eyes?.[e]?.costs?.anest||r.eyes?.[e]?.costs?.anest==="");const rl=RISK_LEVELS.find(x=>x.val===r.risk)||RISK_LEVELS[0];
-                  return(<tr key={r.id} onClick={()=>openEdit(r)} style={{borderBottom:`1px solid ${C.border}`,cursor:"pointer",background:i%2===0?"white":"#FAFAF8"}}>
-                    <td style={{padding:"10px 12px"}}><div style={{fontWeight:800}}>{r.name}</div><div style={{fontSize:"0.7rem",color:C.stone}}>{[r.tel1,r.tel2].filter(Boolean).join(" · ")}</div></td>
-                    <td style={{padding:"10px 12px"}}><RBadge r={r.risk}/></td>
-                    <td style={{padding:"10px 12px"}}>{eyes.map(eye=><span key={eye} style={{display:"block",padding:"2px 7px",borderRadius:5,fontSize:"0.68rem",fontWeight:800,background:eye==="OD"?C.tealPale:C.bluePale,color:eye==="OD"?C.teal:C.blue,marginBottom:2,width:"fit-content"}}>👁 {eye}</span>)}</td>
-                    <td style={{padding:"10px 12px",maxWidth:160}}>{eyes.map(eye=>{const ed=r.eyes?.[eye];if(!ed?.surgery)return null;return<div key={eye} style={{marginBottom:2,fontSize:"0.82rem"}}><span style={{fontSize:"0.65rem",fontWeight:800,color:eye==="OD"?C.teal:C.blue,marginRight:3}}>{eye}:</span>{ed.surgery}</div>;})}</td>
-                    <td style={{padding:"10px 12px",whiteSpace:"nowrap"}}>{eyes.map(eye=>{const ds=r.eyes?.[eye]?.dateScheduled,dt=r.eyes?.[eye]?.dateTentative;if(!ds&&!dt)return null;return<div key={eye} style={{fontSize:"0.8rem",marginBottom:2}}>{ds?<span style={{fontWeight:700,color:dCol(ds)}}>📅 {fmtD(ds)}</span>:<span style={{color:C.stone,fontStyle:"italic"}}>~{fmtD(dt)}</span>}</div>;})} {best&&r.status!=="done"&&dias!==null&&<div style={{fontSize:"0.65rem",color:dCol(best),fontWeight:700}}>{dias<0?`Hace ${Math.abs(dias)}d`:dias===0?"Hoy":`En ${dias}d`}</div>}</td>
-                    <td style={{padding:"10px 12px",fontWeight:700}}>{total>0?fmt(total):<span style={{color:C.stone}}>—</span>}</td>
-                    <td style={{padding:"10px 12px"}}>{noA&&r.status!=="done"?<span style={{background:"#FEF0E6",color:C.orange,borderRadius:6,padding:"2px 7px",fontSize:"0.68rem",fontWeight:800}}>⚠️</span>:<span style={{color:C.green,fontWeight:800}}>✓</span>}</td>
-                    <td style={{padding:"10px 12px"}}><SBadge s={r.status}/></td>
-                  </tr>);
-                })}</tbody>
-              </table></div>
-            }
-          </div>
-        </div>)}
-        {tab==="day"&&<Daily records={live}/>}
-      </div>
+return (
+<div>
+{/* Date selector */}
+<div className=“no-print” style={{display:“flex”,gap:10,alignItems:“center”,marginBottom:16,flexWrap:“wrap”}}>
+<div style={{flex:1}}>
+<Lbl>Fecha de programación</Lbl>
+<Inp type=“date” value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} style={{maxWidth:220}}/>
+</div>
+<Btn variant="outline" style={{marginTop:18}} onClick={printPage}>🖨️ Imprimir</Btn>
+</div>
 
-      {modal&&(<div style={{position:"fixed",inset:0,background:"rgba(26,24,20,0.62)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:12,backdropFilter:"blur(4px)"}}>
-        <div style={{background:C.warm,borderRadius:20,width:"100%",maxWidth:760,maxHeight:"95vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
-          <div style={{padding:"14px 18px 11px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,background:C.warm,zIndex:10,borderRadius:"20px 20px 0 0"}}>
-            <span style={{fontWeight:800,fontSize:"1rem"}}>{modal==="new"?"Nueva Cotización":"Editar Cotización"}</span>
-            <button onClick={close} style={{width:30,height:30,borderRadius:"50%",border:"none",background:C.cream,cursor:"pointer",fontSize:"0.95rem",color:C.stone}}>✕</button>
-          </div>
-          {eKeys.length>0&&<div style={{margin:"11px 18px 0",background:"#FDEAEA",border:"1.5px solid #F0C0C0",borderRadius:10,padding:"10px 13px"}}><div style={{fontWeight:800,color:C.red,fontSize:"0.84rem",marginBottom:4}}>⚠️ Completa los siguientes campos:</div><ul style={{margin:0,paddingLeft:16}}>{eKeys.map(k=><li key={k} style={{fontSize:"0.8rem",color:C.red,marginBottom:2}}>{errors[k]}</li>)}</ul></div>}
-          <div style={{padding:"14px 18px"}}>
-            <Sec title="👤 Paciente"><div style={{display:"grid",gap:9}}><Fld label="Nombre completo" req err={errors.name}><Inp err={!!errors.name} value={form.name} onChange={e=>{setF("name",e.target.value);clr("name");}} placeholder="Nombre del paciente"/></Fld><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Fld label="Teléfono 1" req err={errors.tel1}><Inp err={!!errors.tel1} type="tel" value={form.tel1} onChange={e=>{setF("tel1",e.target.value);clr("tel1");}} placeholder="55 1234 5678"/></Fld><Fld label="Teléfono 2" req err={errors.tel2}><Inp err={!!errors.tel2} type="tel" value={form.tel2} onChange={e=>{setF("tel2",e.target.value);clr("tel2");}} placeholder="Número alternativo"/></Fld></div></div></Sec>
-            <Sec title="⚠️ Riesgo Quirúrgico"><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>{RISK_LEVELS.map(rl=>{const active=form.risk===rl.val;return<button key={rl.val} onClick={()=>setF("risk",rl.val)} style={{padding:"12px 8px",borderRadius:10,border:`2px solid ${active?rl.color:C.border}`,background:active?rl.pale:"white",fontWeight:800,fontSize:"0.88rem",cursor:"pointer",color:active?rl.color:C.stone,textAlign:"center"}}><div style={{fontSize:"1.3rem",marginBottom:4}}>{rl.icon}</div>{rl.label}</button>;})}  </Sec>
-            <Sec title="👁 Ojos a Operar">
-              {errors.activeEyes&&<div style={{fontSize:"0.77rem",color:C.red,fontWeight:700,marginBottom:8}}>⚠️ {errors.activeEyes}</div>}
-              <div style={{display:"flex",gap:10,marginBottom:11}}>{["OD","OI"].map(eye=>{const active=(form.activeEyes||[]).includes(eye);return<button key={eye} onClick={()=>tog(eye)} style={{flex:1,padding:12,borderRadius:10,border:`2px solid ${active?C.teal:C.border}`,background:active?C.tealPale:"white",fontWeight:800,fontSize:"0.95rem",cursor:"pointer",color:active?C.teal:C.stone}}>👁 {eye}<br/><span style={{fontSize:"0.71rem",fontWeight:500}}>{eye==="OD"?"Ojo derecho":"Ojo izquierdo"}</span></button>;})}</div>
-              {(form.activeEyes||[]).length===2&&<div style={{marginBottom:12}}><Fld label="¿Con cuál ojo se inicia?"><Sel value={form.eyeFirst||""} onChange={e=>setF("eyeFirst",e.target.value)}><option value="">Por definir</option><option value="OD">Inicia OD</option><option value="OI">Inicia OI</option></Sel></Fld></div>}
-              {(form.activeEyes||[]).length>0&&<div style={{display:"grid",gridTemplateColumns:(form.activeEyes||[]).length===2?"1fr 1fr":"1fr",gap:12}}>{(form.activeEyes||[]).map(eye=>(<div key={eye}><div style={{fontSize:"0.7rem",fontWeight:800,textTransform:"uppercase",color:eye==="OD"?C.teal:C.blue,marginBottom:6}}><span style={{display:"inline-flex",padding:"2px 10px",borderRadius:6,background:eye==="OD"?C.tealPale:C.bluePale}}>👁 {eye} — {eye==="OD"?"Ojo Derecho":"Ojo Izquierdo"}</span></div><EyePanel data={form.eyes?.[eye]||mkEye()} onChange={d=>{setE(eye,d);clr(`${eye}_s`);}} errors={{surgery:errors[`${eye}_s`]}}/></div>))}</div>}
-            </Sec>
-            <Sec title="📋 Estado"><Fld label="Estado"><Sel value={form.status||"pending"} onChange={e=>setF("status",e.target.value)}><option value="pending">⏳ Pendiente</option><option value="scheduled">📅 Programada</option><option value="done">✅ Operado/a</option></Sel></Fld></Sec>
-            <Sec title="📝 Notas"><textarea style={{width:"100%",padding:"10px 12px",border:`1.5px solid ${C.border}`,borderRadius:9,fontSize:"0.87rem",color:C.ink,background:"white",outline:"none",resize:"vertical",minHeight:65,boxSizing:"border-box"}} value={form.notes||""} onChange={e=>setF("notes",e.target.value)} placeholder="Alergias, medicamentos, indicaciones especiales…"/></Sec>
-          </div>
-          <div style={{padding:"11px 18px 16px",display:"flex",gap:10,justifyContent:"flex-end",borderTop:`1px solid ${C.border}`}}>
-            {modal!=="new"&&<Btn variant="danger" onClick={del}>🗑 Eliminar</Btn>}
-            <Btn variant="outline" onClick={close}>Cancelar</Btn>
-            <Btn onClick={saveRec}>Guardar</Btn>
-          </div>
-        </div>
-      </div>)}
+```
+  {/* Print header */}
+  <div style={{marginBottom:16,paddingBottom:12,borderBottom:`2px solid ${C.border}`}}>
+    <div style={{fontWeight:800,fontSize:"1.1rem",color:C.ink}}>Centro Ocular Especializado</div>
+    <div style={{fontWeight:600,fontSize:"0.9rem",color:C.stone}}>Dr. José Antonio Villegas Ávila</div>
+    <div style={{fontWeight:700,fontSize:"0.95rem",color:C.teal,marginTop:4}}>Programación Quirúrgica — {fmtDayTitle(selectedDate)}</div>
+    <div style={{fontSize:"0.8rem",color:C.stone,marginTop:2}}>{dayPatients.length} paciente{dayPatients.length!==1?"s":""} programado{dayPatients.length!==1?"s":""}</div>
+  </div>
+
+  {dayPatients.length===0 ? (
+    <div style={{textAlign:"center",padding:"44px 24px",color:C.stone}}>
+      <div style={{fontSize:"2.5rem",marginBottom:10,opacity:0.3}}>📅</div>
+      <div style={{fontWeight:700,fontSize:"0.98rem",color:C.inkSoft,marginBottom:4}}>Sin cirugías para este día</div>
+      <div style={{fontSize:"0.84rem"}}>Selecciona otra fecha o agrega pacientes programados.</div>
     </div>
-  );
+  ) : (
+    <div style={{display:"grid",gap:14}}>
+      {dayPatients.map((r,i) => {
+        const eyes = (r.activeEyes||[]).filter(eye => r.eyes?.[eye]?.dateScheduled === selectedDate);
+        const rl = RISK_LEVELS.find(x=>x.val===r.risk)||RISK_LEVELS[0];
+        const totalCost = (r.activeEyes||[]).reduce((s,e)=>{ const c=r.eyes?.[e]?.costs||{}; return s+["gastos","anest","implantes","otrosAmt"].reduce((ss,k)=>ss+(parseFloat(c[k])||0),0); },0);
+        return (
+          <div key={r.id} className="print-card" style={{background:"white",borderRadius:14,border:`2px solid ${rl.color}22`,boxShadow:"0 2px 10px rgba(0,0,0,0.06)",overflow:"hidden"}}>
+            {/* Header */}
+            <div style={{background:rl.pale,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,borderBottom:`1.5px solid ${rl.color}33`}}>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:32,height:32,borderRadius:"50%",background:rl.color,color:"white",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:"0.9rem",flexShrink:0}}>{i+1}</div>
+                <div>
+                  <div style={{fontWeight:800,fontSize:"1.05rem",color:C.ink}}>{r.name}</div>
+                  <div style={{fontSize:"0.75rem",color:C.stone}}>{[r.tel1,r.tel2].filter(Boolean).join(" · ")}</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <RiskBadge r={r.risk}/>
+                {eyes.map(eye=>(
+                  <span key={eye} style={{display:"inline-flex",padding:"3px 10px",borderRadius:20,fontSize:"0.75rem",fontWeight:800,background:eye==="OD"?C.tealPale:C.bluePale,color:eye==="OD"?C.teal:C.blue}}>👁 {eye}</span>
+                ))}
+                {r.eyeFirst&&eyes.length>1&&<span style={{fontSize:"0.72rem",color:C.stone,fontWeight:600}}>inicia {r.eyeFirst}</span>}
+              </div>
+            </div>
+
+            {/* Body */}
+            <div style={{padding:"14px 16px",display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:14}}>
+              {eyes.map(eye => {
+                const ed = r.eyes?.[eye]||{};
+                const c = ed.costs||{};
+                const eyeTotal = ["gastos","anest","implantes","otrosAmt"].reduce((s,k)=>s+(parseFloat(c[k])||0),0);
+                const noAnest = !c.anest||c.anest==="";
+                return (
+                  <div key={eye} style={{background:C.cream,borderRadius:10,padding:"12px 14px",border:`1px solid ${eye==="OD"?C.tealPale:C.bluePale}`}}>
+                    <div style={{fontSize:"0.68rem",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.1em",color:eye==="OD"?C.teal:C.blue,marginBottom:8}}>
+                      👁 {eye} — {eye==="OD"?"Ojo Derecho":"Ojo Izquierdo"}
+                    </div>
+                    <div style={{fontWeight:700,fontSize:"0.92rem",color:C.ink,marginBottom:4}}>{ed.surgery||<span style={{color:C.stone,fontStyle:"italic"}}>Sin definir</span>}</div>
+                    {(ed.surgeryPlus||[]).map((p,j)=>(
+                      <span key={j} style={{display:"inline-block",background:C.tealPale,color:C.teal,borderRadius:4,padding:"1px 7px",fontSize:"0.72rem",fontWeight:700,marginRight:4,marginBottom:4}}>+ {p}</span>
+                    ))}
+                    {ed.lioNeeded&&(
+                      <div style={{marginTop:6,padding:"6px 10px",background:C.bluePale,borderRadius:7,fontSize:"0.78rem",color:C.blue,fontWeight:600}}>
+                        🔬 LIO: {ed.lioType||"—"}{ed.lioPower?` · ${ed.lioPower}D`:""}{ed.lioNotes?` · ${ed.lioNotes}`:""}
+                      </div>
+                    )}
+                    <div style={{marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}`,display:"grid",gap:3}}>
+                      {[["Gastos", c.gastos],["Anestesiólogo", c.anest],["Implantes", c.implantes]].map(([label,val])=>(
+                        <div key={label} style={{display:"flex",justifyContent:"space-between",fontSize:"0.78rem"}}>
+                          <span style={{color:label==="Anestesiólogo"&&noAnest?C.orange:C.stone,fontWeight:label==="Anestesiólogo"&&noAnest?700:400}}>
+                            {label==="Anestesiólogo"&&noAnest?"⚠️ ":""}{label}
+                          </span>
+                          <span style={{fontWeight:700,color:label==="Anestesiólogo"&&noAnest?C.orange:C.ink}}>
+                            {fmt(val)||<span style={{color:C.stone,fontWeight:400}}>{label==="Anestesiólogo"?"Pendiente":"—"}</span>}
+                          </span>
+                        </div>
+                      ))}
+                      {c.otrosAmt&&<div style={{display:"flex",justifyContent:"space-between",fontSize:"0.78rem"}}><span style={{color:C.stone}}>Otros{c.otrosDesc?` (${c.otrosDesc})`:""}</span><span style={{fontWeight:700}}>{fmt(c.otrosAmt)}</span></div>}
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.82rem",paddingTop:5,borderTop:`1px solid ${C.border}`,marginTop:3}}>
+                        <span style={{fontWeight:800,color:C.ink}}>Total</span>
+                        <span style={{fontWeight:800,color:C.teal}}>{fmt(eyeTotal)||"$0.00"}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer notas */}
+            {r.notes&&(
+              <div style={{padding:"8px 16px 12px",borderTop:`1px solid ${C.border}`}}>
+                <span style={{fontSize:"0.75rem",color:C.stone,fontWeight:700}}>Notas: </span>
+                <span style={{fontSize:"0.78rem",color:C.inkSoft}}>{r.notes}</span>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  )}
+</div>
+```
+
+);
 }
+
+// ── APP ─────────────────────────────────────────────────────
+function App() {
+const [tab,      setTab]     = useState(“list”);
+const [records,  setRecords] = useState(()=>{try{return JSON.parse(localStorage.getItem(“oftalmo-v2”)||”[]”);}catch{return [];}});
+const [filter,   setFilter]  = useState(“all”);
+const [search,   setSearch]  = useState(””);
+const [modal,    setModal]   = useState(null);
+const [form,     setForm]    = useState(mkForm);
+const [errors,   setErrors]  = useState({});
+const [backupMsg,setBackupMsg]= useState(””);
+
+// Auto-status
+const applyAuto = (recs) => recs.map(r=>{
+if(r.status!==“scheduled”)return r;
+const active=r.activeEyes||[];
+const allPast=active.length>0&&active.every(eye=>{ const d=r.eyes?.[eye]?.dateScheduled; return d&&isPast(d); });
+return allPast?{…r,status:“done”}:r;
+});
+
+const persist=(recs)=>{
+const u=applyAuto(recs);
+localStorage.setItem(“oftalmo-v2”,JSON.stringify(u));
+return u;
+};
+
+// Monthly backup check
+useEffect(()=>{
+const lastBackup = localStorage.getItem(“oftalmo-lastbackup”)||””;
+const now = new Date();
+const thisMonth = `${now.getFullYear()}-${now.getMonth()}`;
+if(lastBackup !== thisMonth && now.getDate() >= 1 && records.length > 0) {
+// Build mailto with CSV data as body summary
+const sl={pending:“Pendiente”,scheduled:“Programada”,done:“Operado/a”};
+const lines = [“RESPALDO MENSUAL — COE Cotizaciones Quirúrgicas”,“Generado: “+new Date().toLocaleDateString(“es-MX”),””,“Paciente | Ojos | Cirugía | Fecha | Estado | Total”,”—”];
+records.forEach(r=>{
+const eyes=r.activeEyes||[];
+const surgery=eyes.map(e=>r.eyes?.[e]?.surgery||””).filter(Boolean).join(” / “);
+const date=eyes.map(e=>r.eyes?.[e]?.dateScheduled||r.eyes?.[e]?.dateTentative).filter(Boolean).sort()[0];
+const total=eyes.reduce((s,e)=>{ const c=r.eyes?.[e]?.costs||{}; return s+[“gastos”,“anest”,“implantes”,“otrosAmt”].reduce((ss,k)=>ss+(parseFloat(c[k])||0),0); },0);
+lines.push(`${r.name} | ${eyes.join("+")} | ${surgery} | ${fmtD(date)} | ${sl[r.status]||r.status} | ${fmt(total)||"—"}`);
+});
+const body = encodeURIComponent(lines.join(”\n”));
+const subject = encodeURIComponent(`COE Respaldo ${now.toLocaleString("es-MX",{month:"long",year:"numeric"})}`);
+const mailto = `mailto:${BACKUP_EMAIL}?subject=${subject}&body=${body}`;
+localStorage.setItem(“oftalmo-lastbackup”, thisMonth);
+setBackupMsg(mailto);
+}
+},[]);
+
+const live = applyAuto(records);
+const stats={
+total:records.length,
+pending:live.filter(r=>r.status===“pending”).length,
+done:live.filter(r=>r.status===“done”).length,
+noAnest:live.filter(r=>r.status!==“done”&&(r.activeEyes||[]).some(eye=>!r.eyes?.[eye]?.costs?.anest)).length,
+};
+
+const filtered = live.filter(r=>{
+const q=search.toLowerCase();
+const st=(r.activeEyes||[]).map(e=>r.eyes?.[e]?.surgery||””).join(” “).toLowerCase();
+const mQ=!q||r.name.toLowerCase().includes(q)||st.includes(q);
+const mF=filter===“all”||r.status===filter||(filter===“noAnest”&&r.status!==“done”&&(r.activeEyes||[]).some(eye=>!r.eyes?.[eye]?.costs?.anest));
+return mQ&&mF;
+}).sort((a,b)=>{
+const best=r=>(r.activeEyes||[]).map(e=>r.eyes?.[e]?.dateScheduled||r.eyes?.[e]?.dateTentative).filter(Boolean).sort()[0];
+const dA=best(a),dB=best(b);
+if(!dA&&!dB)return 0; if(!dA)return 1; if(!dB)return -1;
+return new Date(dA)-new Date(dB);
+});
+
+const openNew=(pre)=>{ setForm(pre||mkForm()); setErrors({}); setModal(“new”); };
+const openEdit=(r)=>{ setForm({…mkForm(),…r,eyes:{OD:{…mkEye(),…(r.eyes?.OD||{}),costs:{…mkEye().costs,…(r.eyes?.OD?.costs||{})},surgeryPlus:[…(r.eyes?.OD?.surgeryPlus||[])]},OI:{…mkEye(),…(r.eyes?.OI||{}),costs:{…mkEye().costs,…(r.eyes?.OI?.costs||{})},surgeryPlus:[…(r.eyes?.OI?.surgeryPlus||[])]}}}); setErrors({}); setModal(r.id); };
+const closeModal=()=>setModal(null);
+const setF=(k,v)=>setForm(f=>({…f,[k]:v}));
+const setEye=(eye,d)=>setForm(f=>({…f,eyes:{…f.eyes,[eye]:d}}));
+const clrErr=(…ks)=>setErrors(e=>{const n={…e};ks.forEach(k=>delete n[k]);return n;});
+
+const toggleEye=(eye)=>{
+const cur=form.activeEyes||[];
+setF(“activeEyes”,cur.includes(eye)?cur.filter(e=>e!==eye):[…cur,eye].sort());
+clrErr(“activeEyes”);
+};
+
+const validate=()=>{
+const e={};
+if(!form.name.trim())              e.name=“Nombre del paciente obligatorio”;
+if(!form.tel1.trim())              e.tel1=“Teléfono 1 obligatorio”;
+if(!form.tel2.trim())              e.tel2=“Teléfono 2 obligatorio”;
+if(!(form.activeEyes||[]).length)  e.activeEyes=“Selecciona al menos un ojo”;
+(form.activeEyes||[]).forEach(eye=>{ if(!form.eyes?.[eye]?.surgery) e[`${eye}_s`]=`Procedimiento ${eye} obligatorio`; });
+return e;
+};
+
+const saveRecord=()=>{
+const e=validate(); if(Object.keys(e).length){setErrors(e);return;}
+const rec={…form,id:modal===“new”?uid():modal};
+const next=modal===“new”?[rec,…records]:records.map(r=>r.id===modal?rec:r);
+setRecords(persist(next)); closeModal();
+};
+
+const deleteRecord=()=>{
+if(!confirm(”¿Eliminar esta cotización?”))return;
+const next=records.filter(r=>r.id!==modal);
+setRecords(persist(next)); closeModal();
+};
+
+const exportExcel=()=>{
+if(!records.length){alert(“No hay cotizaciones para exportar.”);return;}
+const sl={pending:“Pendiente”,scheduled:“Programada”,done:“Operado/a”};
+const rows=[];
+records.forEach(r=>{
+const eyes=r.activeEyes||[];
+(eyes.length?eyes:[”—”]).forEach(eye=>{
+const ed=eyes.length?r.eyes?.[eye]||{}:{};
+const c=ed.costs||{};
+const tot=[“gastos”,“anest”,“implantes”,“otrosAmt”].reduce((s,k)=>s+(parseFloat(c[k])||0),0);
+const rl=RISK_LEVELS.find(x=>x.val===r.risk)||RISK_LEVELS[0];
+rows.push({“Paciente”:r.name,“Tel 1”:r.tel1,“Tel 2”:r.tel2,“Riesgo”:rl.label,“Ojo”:eye,“Cirugía”:ed.surgery||””,“Simultáneos”:(ed.surgeryPlus||[]).join(” + “),“LIO”:ed.lioNeeded?“Sí”:“No”,“Tipo LIO”:ed.lioType||””,“Potencia”:ed.lioPower||””,“F. Tentativa”:fmtD(ed.dateTentative),“F. Programada”:fmtD(ed.dateScheduled),“Gastos”:parseFloat(c.gastos)||””,“Anestesiólogo”:parseFloat(c.anest)||””,“Implantes”:parseFloat(c.implantes)||””,“Otros”:parseFloat(c.otrosAmt)||””,“Otros desc”:c.otrosDesc||””,“Total”:tot||””,“Estado”:sl[r.status]||r.status,“Notas”:r.notes||””});
+});
+});
+const cols=Object.keys(rows[0]);
+const esc=(v)=>{ const s=String(v==null?””:v); return s.includes(”,”)||s.includes(’”’)||s.includes(”\n”)?`"${s.replace(/"/g,'""')}"`:s; };
+const csv=”\uFEFF”+cols.join(”,”)+”\n”+rows.map(r=>cols.map(c=>esc(r[c])).join(”,”)).join(”\n”);
+const blob=new Blob([csv],{type:“text/csv;charset=utf-8;”});
+const url=URL.createObjectURL(blob);
+const a=document.createElement(“a”); a.href=url; a.download=`cotizaciones_${toStr()}.csv`; a.click();
+URL.revokeObjectURL(url);
+};
+
+const dCol=(d)=>{const n=dDiff(d);if(n===null)return C.stone;if(n<0)return C.red;if(n<=7)return C.orange;if(n<=30)return C.gold;return C.green;};
+const errKeys=Object.keys(errors).filter(k=>errors[k]);
+
+return (
+<div style={{fontFamily:”‘Segoe UI’,system-ui,sans-serif”,background:C.cream,minHeight:“100vh”,color:C.ink}}>
+
+```
+  {/* BACKUP ALERT */}
+  {backupMsg&&(
+    <div style={{background:C.tealPale,borderBottom:`1px solid ${C.teal}44`,padding:"10px 18px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+      <span style={{fontSize:"0.84rem",color:C.teal,fontWeight:600}}>📧 Es momento del respaldo mensual</span>
+      <a href={backupMsg} style={{background:C.teal,color:"white",borderRadius:8,padding:"6px 14px",fontSize:"0.82rem",fontWeight:700,textDecoration:"none"}}>Enviar a {BACKUP_EMAIL}</a>
+      <button onClick={()=>setBackupMsg("")} style={{background:"none",border:"none",color:C.stone,cursor:"pointer",fontSize:"1rem"}}>✕</button>
+    </div>
+  )}
+
+  {/* HEADER */}
+  <div className="no-print" style={{background:C.ink,color:C.cream,padding:"13px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 12px rgba(0,0,0,0.2)"}}>
+    <div style={{fontWeight:800,fontSize:"1.05rem"}}>👁 COE <span style={{color:"#7EC8C8"}}>·</span> Cirugías</div>
+    <div style={{display:"flex",gap:14}}>
+      {[["total","Total",C.stoneLight],["pending","Pend.",C.gold],["noAnest","Anest.",C.orange],["done","Oper.","#7EC8C8"]].map(([k,l,c])=>(
+        <div key={k} style={{textAlign:"center"}}>
+          <div style={{fontSize:"1.1rem",fontWeight:800,color:c,lineHeight:1}}>{stats[k]}</div>
+          <div style={{fontSize:"0.56rem",color:C.stoneLight,textTransform:"uppercase"}}>{l}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+
+  {/* TABS */}
+  <div className="no-print" style={{display:"flex",background:"white",borderBottom:`1px solid ${C.border}`,padding:"0 14px",gap:2,overflowX:"auto"}}>
+    {[["list","📋 Cotizaciones"],["day","🗓 Programación del día"],["key","⚙️ Ajustes"]].map(([k,l])=>(
+      <button key={k} onClick={()=>setTab(k)} style={{padding:"13px 16px",fontSize:"0.85rem",fontWeight:tab===k?800:500,color:tab===k?C.teal:C.stone,background:"none",border:"none",borderBottom:`3px solid ${tab===k?C.teal:"transparent"}`,cursor:"pointer",whiteSpace:"nowrap"}}>{l}</button>
+    ))}
+  </div>
+
+  <div style={{padding:16,maxWidth:1100,margin:"0 auto"}}>
+
+    {/* ══ LISTA ══ */}
+    {tab==="list"&&(
+      <div className="no-print">
+        {stats.noAnest>0&&(
+          <div onClick={()=>setFilter("noAnest")} style={{background:C.orangePale,border:`1.5px solid #F0C090`,borderRadius:11,padding:"11px 15px",marginBottom:12,display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
+            <span>⚠️</span><span style={{fontWeight:700,color:C.orange}}>{stats.noAnest} paciente{stats.noAnest>1?"s":""} sin cotización de anestesia</span>
+          </div>
+        )}
+        <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+          <Btn onClick={()=>openNew()}>＋ Nueva cotización</Btn>
+          <Btn variant="outline" onClick={exportExcel}>📥 Excel</Btn>
+          <input style={{flex:1,minWidth:140,padding:"11px 12px",border:`1.5px solid ${C.border}`,borderRadius:9,fontSize:"16px",outline:"none"}} placeholder="Buscar…" value={search} onChange={e=>setSearch(e.target.value)}/>
+        </div>
+        <div style={{display:"flex",gap:7,marginBottom:13,flexWrap:"wrap"}}>
+          {[["all","Todos"],["pending","⏳ Pendientes"],["scheduled","📅 Programados"],["done","✅ Operados"],["noAnest","⚠️ Sin anestesia"]].map(([k,l])=>(
+            <button key={k} onClick={()=>setFilter(k)} style={{padding:"6px 13px",borderRadius:20,fontSize:"0.78rem",fontWeight:700,cursor:"pointer",border:`1.5px solid ${filter===k?C.teal:C.border}`,background:filter===k?C.teal:"white",color:filter===k?"white":C.stone}}>{l}</button>
+          ))}
+        </div>
+        <div style={{background:"white",borderRadius:13,border:`1px solid ${C.border}`,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.05)"}}>
+          {filtered.length===0?(
+            <div style={{textAlign:"center",padding:"44px 24px",color:C.stone}}>
+              <div style={{fontSize:"2.5rem",marginBottom:10,opacity:0.3}}>👁</div>
+              <div style={{fontWeight:700,marginBottom:4}}>Sin resultados</div>
+              <div style={{fontSize:"0.84rem"}}>Agrega una cotización o ajusta los filtros.</div>
+            </div>
+          ):(
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:"0.86rem"}}>
+                <thead>
+                  <tr style={{background:C.ink}}>
+                    {["Paciente","Riesgo","Ojo","Cirugía","Fecha","Total","Anest.","Estado"].map(h=>(
+                      <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:"0.62rem",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.09em",color:C.stoneLight,whiteSpace:"nowrap"}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((r,i)=>{
+                    const eyes=r.activeEyes||[];
+                    const best=eyes.map(e=>r.eyes?.[e]?.dateScheduled||r.eyes?.[e]?.dateTentative).filter(Boolean).sort()[0];
+                    const dias=dDiff(best);
+                    const total=eyes.reduce((s,e)=>{ const c=r.eyes?.[e]?.costs||{}; return s+["gastos","anest","implantes","otrosAmt"].reduce((ss,k)=>ss+(parseFloat(c[k])||0),0); },0);
+                    const noA=eyes.some(e=>!r.eyes?.[e]?.costs?.anest||r.eyes?.[e]?.costs?.anest==="");
+                    const rl=RISK_LEVELS.find(x=>x.val===r.risk)||RISK_LEVELS[0];
+                    return(
+                      <tr key={r.id} onClick={()=>openEdit(r)} style={{borderBottom:`1px solid ${C.border}`,cursor:"pointer",background:i%2===0?"white":"#FAFAF8"}}>
+                        <td style={{padding:"11px 12px"}}>
+                          <div style={{fontWeight:800,color:C.ink}}>{r.name}</div>
+                          <div style={{fontSize:"0.72rem",color:C.stone,marginTop:2}}>{[r.tel1,r.tel2].filter(Boolean).join(" · ")}</div>
+                        </td>
+                        <td style={{padding:"11px 12px"}}><RiskBadge r={r.risk}/></td>
+                        <td style={{padding:"11px 12px"}}>
+                          {eyes.map(eye=>(<span key={eye} style={{display:"block",padding:"2px 8px",borderRadius:6,fontSize:"0.7rem",fontWeight:800,background:eye==="OD"?C.tealPale:C.bluePale,color:eye==="OD"?C.teal:C.blue,marginBottom:2,width:"fit-content"}}>👁 {eye}</span>))}
+                          {r.eyeFirst&&eyes.length>1&&<span style={{fontSize:"0.67rem",color:C.stone}}>inicia {r.eyeFirst}</span>}
+                        </td>
+                        <td style={{padding:"11px 12px",maxWidth:190}}>
+                          {eyes.map(eye=>{ const ed=r.eyes?.[eye]; if(!ed?.surgery)return null; return(<div key={eye} style={{marginBottom:3}}><span style={{fontSize:"0.67rem",fontWeight:800,color:eye==="OD"?C.teal:C.blue,marginRight:4}}>{eye}:</span><span style={{fontWeight:600}}>{ed.surgery}</span>{ed.lioNeeded&&<div style={{fontSize:"0.67rem",color:C.blue}}>🔬{ed.lioType?` ${ed.lioType}`:""}{ ed.lioPower?` · ${ed.lioPower}D`:""}</div>}</div>); })}
+                        </td>
+                        <td style={{padding:"11px 12px",whiteSpace:"nowrap"}}>
+                          {eyes.map(eye=>{ const ds=r.eyes?.[eye]?.dateScheduled,dt=r.eyes?.[eye]?.dateTentative; if(!ds&&!dt)return null; return(<div key={eye} style={{marginBottom:2,fontSize:"0.82rem"}}><span style={{fontSize:"0.66rem",fontWeight:800,color:eye==="OD"?C.teal:C.blue,marginRight:3}}>{eye}:</span>{ds?<span style={{fontWeight:700,color:dCol(ds)}}>📅 {fmtD(ds)}</span>:<span style={{color:C.stone,fontStyle:"italic"}}>~{fmtD(dt)}</span>}</div>); })}
+                          {best&&r.status!=="done"&&dias!==null&&<div style={{fontSize:"0.67rem",color:dCol(best),fontWeight:700,marginTop:2}}>{dias<0?`Hace ${Math.abs(dias)}d`:dias===0?"Hoy":`En ${dias}d`}</div>}
+                        </td>
+                        <td style={{padding:"11px 12px",fontWeight:700}}>{total>0?fmt(total):<span style={{color:C.stone}}>—</span>}</td>
+                        <td style={{padding:"11px 12px"}}>{noA&&r.status!=="done"?<span style={{background:C.orangePale,color:C.orange,borderRadius:6,padding:"3px 8px",fontSize:"0.69rem",fontWeight:800}}>⚠️</span>:<span style={{color:C.green,fontWeight:800}}>✓</span>}</td>
+                        <td style={{padding:"11px 12px"}}><StatusBadge s={r.status}/></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    )}
+
+    {/* ══ PROGRAMACIÓN DEL DÍA ══ */}
+    {tab==="day"&&<DailySchedule records={live}/>}
+
+    {/* ══ AJUSTES ══ */}
+    {tab==="key"&&(
+      <div className="no-print" style={{maxWidth:500}}>
+        <div style={{background:"white",borderRadius:13,border:`1px solid ${C.border}`,padding:20,marginBottom:14}}>
+          <div style={{fontWeight:800,fontSize:"1rem",marginBottom:6}}>📧 Respaldo mensual</div>
+          <div style={{fontSize:"0.82rem",color:C.stone,marginBottom:10,lineHeight:1.6}}>Cada inicio de mes la app te avisa para enviar un respaldo por correo a <strong>{BACKUP_EMAIL}</strong>.</div>
+          <Btn variant="outline" onClick={()=>{localStorage.removeItem("oftalmo-lastbackup");alert("Listo — el aviso de respaldo aparecerá al reabrir la app.");}}>🔄 Forzar respaldo ahora</Btn>
+        </div>
+        <div style={{background:"white",borderRadius:13,border:`1px solid ${C.border}`,padding:20}}>
+          <div style={{fontWeight:800,fontSize:"1rem",marginBottom:6}}>📥 Exportar datos</div>
+          <div style={{fontSize:"0.82rem",color:C.stone,marginBottom:10}}>Descarga todas las cotizaciones en formato Excel/CSV.</div>
+          <Btn variant="outline" onClick={exportExcel}>📥 Descargar Excel</Btn>
+        </div>
+      </div>
+    )}
+  </div>
+
+  {/* ══ MODAL ══ */}
+  {modal&&(
+    <div style={{position:"fixed",inset:0,background:"rgba(26,24,20,0.62)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:12,backdropFilter:"blur(4px)"}}>
+      <div style={{background:C.warm,borderRadius:20,width:"100%",maxWidth:760,maxHeight:"95vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
+        <div style={{padding:"15px 19px 12px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,background:C.warm,zIndex:10,borderRadius:"20px 20px 0 0"}}>
+          <span style={{fontWeight:800,fontSize:"1.03rem"}}>{modal==="new"?"Nueva Cotización":"Editar Cotización"}</span>
+          <button onClick={closeModal} style={{width:32,height:32,borderRadius:"50%",border:"none",background:C.cream,cursor:"pointer",fontSize:"1rem",color:C.stone,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+        </div>
+
+        {errKeys.length>0&&(
+          <div style={{margin:"12px 19px 0",background:C.redPale,border:`1.5px solid #F0C0C0`,borderRadius:10,padding:"10px 14px"}}>
+            <div style={{fontWeight:800,color:C.red,fontSize:"0.85rem",marginBottom:5}}>⚠️ Completa los siguientes campos:</div>
+            <ul style={{margin:0,paddingLeft:16}}>{errKeys.map(k=><li key={k} style={{fontSize:"0.82rem",color:C.red,marginBottom:2}}>{errors[k]}</li>)}</ul>
+          </div>
+        )}
+
+        <div style={{padding:"15px 19px"}}>
+
+          <Sec title="👤 Paciente">
+            <div style={{display:"grid",gap:10}}>
+              <Fld label="Nombre completo" req err={errors.name}><Inp err={!!errors.name} value={form.name} onChange={e=>{setF("name",e.target.value);clrErr("name");}} placeholder="Nombre del paciente"/></Fld>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <Fld label="Teléfono 1" req err={errors.tel1}><Inp err={!!errors.tel1} type="tel" value={form.tel1} onChange={e=>{setF("tel1",e.target.value);clrErr("tel1");}} placeholder="55 1234 5678"/></Fld>
+                <Fld label="Teléfono 2" req err={errors.tel2}><Inp err={!!errors.tel2} type="tel" value={form.tel2} onChange={e=>{setF("tel2",e.target.value);clrErr("tel2");}} placeholder="Número alternativo"/></Fld>
+              </div>
+            </div>
+          </Sec>
+
+          {/* RIESGO QUIRÚRGICO */}
+          <Sec title="⚠️ Riesgo Quirúrgico">
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+              {RISK_LEVELS.map(rl=>{
+                const active=form.risk===rl.val;
+                return(
+                  <button key={rl.val} onClick={()=>setF("risk",rl.val)} style={{padding:"12px 8px",borderRadius:10,border:`2px solid ${active?rl.color:C.border}`,background:active?rl.pale:"white",fontWeight:800,fontSize:"0.88rem",cursor:"pointer",color:active?rl.color:C.stone,textAlign:"center"}}>
+                    <div style={{fontSize:"1.3rem",marginBottom:4}}>{rl.icon}</div>
+                    {rl.label}
+                  </button>
+                );
+              })}
+            </div>
+          </Sec>
+
+          <Sec title="👁 Ojos a Operar">
+            {errors.activeEyes&&<div style={{fontSize:"0.77rem",color:C.red,fontWeight:700,marginBottom:8}}>⚠️ {errors.activeEyes}</div>}
+            <div style={{display:"flex",gap:10,marginBottom:11}}>
+              {["OD","OI"].map(eye=>{
+                const active=(form.activeEyes||[]).includes(eye);
+                return(<button key={eye} onClick={()=>toggleEye(eye)} style={{flex:1,padding:12,borderRadius:10,border:`2px solid ${active?C.teal:C.border}`,background:active?C.tealPale:"white",fontWeight:800,fontSize:"0.95rem",cursor:"pointer",color:active?C.teal:C.stone}}>👁 {eye}<br/><span style={{fontSize:"0.71rem",fontWeight:500}}>{eye==="OD"?"Ojo derecho":"Ojo izquierdo"}</span></button>);
+              })}
+            </div>
+            {(form.activeEyes||[]).length===2&&(
+              <div style={{marginBottom:12}}><Fld label="¿Con cuál ojo se inicia?"><Sel value={form.eyeFirst||""} onChange={e=>setF("eyeFirst",e.target.value)}><option value="">Por definir</option><option value="OD">Inicia OD (derecho)</option><option value="OI">Inicia OI (izquierdo)</option></Sel></Fld></div>
+            )}
+            {(form.activeEyes||[]).length>0&&(
+              <div style={{display:"grid",gridTemplateColumns:(form.activeEyes||[]).length===2?"1fr 1fr":"1fr",gap:12}}>
+                {(form.activeEyes||[]).map(eye=>(
+                  <div key={eye}>
+                    <div style={{fontSize:"0.7rem",fontWeight:800,textTransform:"uppercase",color:eye==="OD"?C.teal:C.blue,marginBottom:6}}>
+                      <span style={{display:"inline-flex",padding:"2px 10px",borderRadius:6,background:eye==="OD"?C.tealPale:C.bluePale}}>👁 {eye} — {eye==="OD"?"Ojo Derecho":"Ojo Izquierdo"}</span>
+                    </div>
+                    <EyePanel data={form.eyes?.[eye]||mkEye()} onChange={d=>{setEye(eye,d);clrErr(`${eye}_s`);}} errors={{surgery:errors[`${eye}_s`]}}/>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Sec>
+
+          <Sec title="📋 Estado">
+            <Fld label="Estado" hint="💡 Cuando la fecha de programación pasa, cambia a ✅ automáticamente.">
+              <Sel value={form.status||"pending"} onChange={e=>setF("status",e.target.value)}>
+                <option value="pending">⏳ Pendiente</option>
+                <option value="scheduled">📅 Programada</option>
+                <option value="done">✅ Operado/a</option>
+              </Sel>
+            </Fld>
+          </Sec>
+
+          <Sec title="📝 Notas">
+            <textarea style={{width:"100%",padding:"11px 12px",border:`1.5px solid ${C.border}`,borderRadius:9,fontSize:"16px",color:C.ink,background:"white",outline:"none",resize:"vertical",minHeight:70,boxSizing:"border-box"}} value={form.notes||""} onChange={e=>setF("notes",e.target.value)} placeholder="Alergias, medicamentos, indicaciones especiales…"/>
+          </Sec>
+        </div>
+
+        <div style={{padding:"12px 19px 18px",display:"flex",gap:10,justifyContent:"flex-end",borderTop:`1px solid ${C.border}`}}>
+          {modal!=="new"&&<Btn variant="danger" onClick={deleteRecord}>🗑 Eliminar</Btn>}
+          <Btn variant="outline" onClick={closeModal}>Cancelar</Btn>
+          <Btn onClick={saveRecord}>Guardar cotización</Btn>
+        </div>
+      </div>
+    </div>
+  )}
+</div>
+```
+
+);
+}
+
+ReactDOM.createRoot(document.getElementById(“root”)).render(<App/>);
+</script>
+
+</body>
+</html>
