@@ -844,7 +844,14 @@ function render(){
     s.innerHTML=`<div style="font-size:1rem;font-weight:800;color:${c};line-height:1;">${stats[k]}</div><div style="font-size:0.55rem;color:#C8C0B8;text-transform:uppercase;">${l}</div>`;
     statsBox.appendChild(s);
   });
-  header.appendChild(titleEl); header.appendChild(statsBox); app.appendChild(header);
+  const backupBtn=document.createElement("button");
+  backupBtn.title="Backup por email";
+  backupBtn.textContent="📤";
+  backupBtn.style.cssText="background:none;border:1px solid #555;color:#C8C0B8;border-radius:8px;padding:5px 9px;font-size:1rem;cursor:pointer;margin-left:10px;";
+  backupBtn.addEventListener("click",()=>weeklyBackup(true));
+  const rightSide=document.createElement("div"); rightSide.style.cssText="display:flex;align-items:center;";
+  rightSide.appendChild(statsBox); rightSide.appendChild(backupBtn);
+  header.appendChild(titleEl); header.appendChild(rightSide); app.appendChild(header);
 
   // Tabs
   const tabs=document.createElement("div"); tabs.className="app-tabs"; tabs.style.cssText=`display:flex;background:white;border-bottom:1px solid ${C.border};padding:0 14px;gap:2px;overflow-x:auto;`;
@@ -978,9 +985,33 @@ function render(){
 }
 
 // ── SETTINGS VIEW ─────────────────────────────────────────────
+// ── WEEKLY BACKUP ─────────────────────────────────────────────
+function weeklyBackup(force){
+  const KEY="oftalmo-last-backup";
+  const now=Date.now();
+  const last=parseInt(localStorage.getItem(KEY)||"0");
+  const days7=7*24*60*60*1000;
+  if(!force && (now-last)<days7) return;
+  const recs=state.records||[];
+  if(!recs.length) return;
+  const fecha=new Date().toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
+  const subject=encodeURIComponent(`COE | Backup semanal — ${fecha} (${recs.length} pacientes)`);
+  const json=JSON.stringify(recs,null,2);
+  const body=encodeURIComponent(
+    `BACKUP SEMANAL — Centro Ocular Especializado\nFecha: ${fecha}\nPacientes: ${recs.length}\n\n` +
+    `Para restaurar: pega este JSON en la consola del navegador:\n` +
+    `localStorage.setItem("oftalmo-v3", JSON.stringify(datos))\n\n` +
+    `=== DATOS ===\n${json}`
+  );
+  localStorage.setItem(KEY, String(now));
+  window.location.href=`mailto:${BACKUP_EMAIL}?subject=${subject}&body=${body}`;
+}
+
 // ── INIT ──────────────────────────────────────────────────────
 loadRecords();
 render();
+// Weekly backup check — triggers after short delay so app loads first
+setTimeout(()=>{ weeklyBackup(false); }, 2000);
 </script>
 </body>
 </html>
