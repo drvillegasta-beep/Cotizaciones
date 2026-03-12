@@ -995,13 +995,42 @@ function weeklyBackup(force){
   const recs=state.records||[];
   if(!recs.length) return;
   const fecha=new Date().toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
+
+  // Build CSV — one row per eye per patient
+  const cols=["Paciente","Tel1","Tel2","Ojo","Cirugía","Cirugías adicionales","Riesgo","LIO tipo","LIO poder","LIO cilindro","LIO eje","LIO adición","LIO marca/modelo","Fecha tentativa","Fecha programada","Gastos","Anestesia","Implantes","Total","Estado","Notas"];
+  const esc=v=>`"${String(v??"-").replace(/"/g,'""')}"`;
+  const rows=[cols.map(esc).join(",")];
+  recs.forEach(r=>{
+    (r.activeEyes||[]).forEach(eye=>{
+      const e=r.eyes?.[eye]||{};
+      const c=e.costs||{};
+      const total=[c.gastos,c.anest,c.implantes,c.otrosAmt].reduce((s,v)=>s+(parseFloat(v)||0),0);
+      rows.push([
+        r.name, r.tel1||"", r.tel2||"",
+        eye==="OD"?"Ojo Derecho":"Ojo Izquierdo",
+        e.surgery||"", (e.surgeryPlus||[]).join(" + "),
+        e.risk||"standard",
+        e.lioNeeded?(e.lioType||""):"",
+        e.lioNeeded&&e.lioPower?fmtPower(e.lioPower)+"D":"",
+        e.lioNeeded&&e.lioCyl?fmtPower(e.lioCyl)+"D":"",
+        e.lioNeeded&&e.lioAxis?e.lioAxis+"°":"",
+        e.lioNeeded&&e.lioAdd?e.lioAdd+"D":"",
+        e.lioNeeded?(e.lioNotes||""):"",
+        e.dateTentative||"", e.dateScheduled||"",
+        c.gastos||"", c.anest||"", c.implantes||"",
+        total>0?total.toFixed(2):"",
+        r.status||"pending", r.notes||""
+      ].map(esc).join(","));
+    });
+  });
+  const csv=rows.join("\n");
+
   const subject=encodeURIComponent(`COE | Backup semanal — ${fecha} (${recs.length} pacientes)`);
-  const json=JSON.stringify(recs,null,2);
   const body=encodeURIComponent(
     `BACKUP SEMANAL — Centro Ocular Especializado\nFecha: ${fecha}\nPacientes: ${recs.length}\n\n` +
-    `Para restaurar: pega este JSON en la consola del navegador:\n` +
-    `localStorage.setItem("oftalmo-v3", JSON.stringify(datos))\n\n` +
-    `=== DATOS ===\n${json}`
+    `Copia el contenido desde "=== CSV ===" hasta el final y pégalo en Excel o Numbers.\n` +
+    `(Archivo > Importar > separado por comas)\n\n` +
+    `=== CSV ===\n${csv}`
   );
   localStorage.setItem(KEY, String(now));
   window.location.href=`mailto:${BACKUP_EMAIL}?subject=${subject}&body=${body}`;
