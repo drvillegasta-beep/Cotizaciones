@@ -60,14 +60,70 @@ function fmtPower(v){if(v===""||v==null)return"";const n=parseFloat(v);if(isNaN(
 const fmtCost=n=>{if(n==null||n===""||isNaN(n)||parseFloat(n)===0)return null;return new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(n);};
 const mkForm=()=>({name:"",tel1:"",tel2:"",activeEyes:[],eyeFirst:"",eyes:{OD:mkEye(),OI:mkEye()},status:"pending",notes:""});
 
+// ── SUPABASE ──────────────────────────────────────────────────
+const SB_URL="https://ckjkdenwqicdjvodflba.supabase.co";
+const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNramtkZW53cWljZGp2b2RmbGJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MDIzMzgsImV4cCI6MjA4OTE3ODMzOH0.7pd1oAevIWY81e0DTSMBFtzSECfQNa_mOqstG_UEj-0";
+const sbHeaders={"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY};
+
+function recToRow(r){return{id:r.id,nombre:r.name||"",tel1:r.tel1||"",tel2:r.tel2||"",active_eyes:r.activeEyes||[],eye_first:r.eyeFirst||"",eyes:r.eyes||{},status:r.status||"pending",notes:r.notes||"",updated_at:new Date().toISOString()};}
+function rowToRec(row){return{id:row.id,name:row.nombre,tel1:row.tel1||"",tel2:row.tel2||"",activeEyes:row.active_eyes||[],eyeFirst:row.eye_first||"",eyes:row.eyes||{},status:row.status||"pending",notes:row.notes||""};}
+
+async function sbLoad(){
+  try{
+    const res=await fetch(SB_URL+"/rest/v1/cotizaciones?select=*&order=created_at.asc",{headers:sbHeaders});
+    if(!res.ok) throw new Error(await res.text());
+    const rows=await res.json();
+    state.syncError=false;
+    return rows.map(rowToRec);
+  }catch(e){
+    console.error("Supabase load error:",e);
+    state.syncError=true;
+    try{return JSON.parse(localStorage.getItem("oftalmo-v3")||"[]");}catch(e2){return[];}
+  }
+}
+
+async function sbSave(rec){
+  const row=recToRow(rec);
+  try{
+    const res=await fetch(SB_URL+"/rest/v1/cotizaciones",{
+      method:"POST",headers:{...sbHeaders,"Prefer":"resolution=merge-duplicates"},
+      body:JSON.stringify(row)
+    });
+    if(!res.ok) throw new Error(await res.text());
+  }catch(e){console.error("Supabase save error:",e);}
+  // Always mirror to localStorage as backup
+  const local=JSON.parse(localStorage.getItem("oftalmo-v3")||"[]");
+  const idx=local.findIndex(x=>x.id===rec.id);
+  if(idx>=0) local[idx]=rec; else local.unshift(rec);
+  localStorage.setItem("oftalmo-v3",JSON.stringify(local));
+}
+
+async function sbDelete(id){
+  try{
+    const res=await fetch(SB_URL+"/rest/v1/cotizaciones?id=eq."+id,{method:"DELETE",headers:sbHeaders});
+    if(!res.ok) throw new Error(await res.text());
+  }catch(e){console.error("Supabase delete error:",e);}
+  const local=JSON.parse(localStorage.getItem("oftalmo-v3")||"[]").filter(x=>x.id!==id);
+  localStorage.setItem("oftalmo-v3",JSON.stringify(local));
+}
+
 // ── STATE ────────────────────────────────────────────────────
-let state={tab:"list",records:[],filter:"all",search:"",modal:null,form:mkForm(),errors:{},modalEyeTab:"OD",schedModal:null,expandedDays:{},customSurgeries:[],sortBy:"name",sortDir:"asc"};
+let state={tab:"list",records:[],filter:"all",search:"",modal:null,form:mkForm(),errors:{},modalEyeTab:"OD",schedModal:null,expandedDays:{},customSurgeries:[],sortBy:"name",sortDir:"asc",syncing:false,syncError:false};
 
 function getAllSurgeries(){return [...Object.values(SURGERY_DB).flat(),...state.customSurgeries];}
 
-function loadRecords(){
-  try{state.records=JSON.parse(localStorage.getItem("oftalmo-v3")||"[]");}catch(e){state.records=[];}
+async function loadRecords(){
   try{state.customSurgeries=JSON.parse(localStorage.getItem("oftalmo-custom-surg")||"[]");}catch(e){state.customSurgeries=[];}
+  // Load from localStorage first for instant display
+  try{state.records=JSON.parse(localStorage.getItem("oftalmo-v3")||"[]");}catch(e){state.records=[];}
+  state.records=applyAuto(state.records); render();
+  // Then sync from Supabase
+  state.syncing=true; render();
+  const remote=await sbLoad();
+  state.records=applyAuto(remote);
+  // Mirror to localStorage
+  localStorage.setItem("oftalmo-v3",JSON.stringify(state.records));
+  state.syncing=false; render();
 }
 function saveCustomSurgeries(){localStorage.setItem("oftalmo-custom-surg",JSON.stringify(state.customSurgeries));}
 
@@ -100,9 +156,21 @@ function sendEmailBackup(r){
   if(r.notes) body+=`Notas: ${r.notes}\n\n`;
   body+=`Registrado: ${new Date().toLocaleString("es-MX")}`;
   const subject=encodeURIComponent(`COE | ${r.name} — ${eyes.map(e=>{const s=r.eyes?.[e]?.surgery||"";return e+": "+s;}).join(" / ")}`);
-  window.location.href=`mailto:${BACKUP_EMAIL}?subject=${subject}&body=${encodeURIComponent(body)}`;
+  const a=document.createElement("a");
+  a.href=`mailto:${BACKUP_EMAIL}?subject=${subject}&body=${encodeURIComponent(body)}`;
+  a.style.display="none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>document.body.removeChild(a),500);
 }
-function saveRecords(recs){const u=applyAuto(recs);localStorage.setItem("oftalmo-v3",JSON.stringify(u));state.records=u;}
+function saveRecords(recs){
+  const u=applyAuto(recs);
+  localStorage.setItem("oftalmo-v3",JSON.stringify(u));
+  state.records=u;
+}
+function saveRecordRemote(rec){sbSave(rec);}
+function deleteRecordRemote(id){sbDelete(id);}
+
 function applyAuto(recs){
   return recs.map(r=>{
     if(r.status!=="scheduled")return r;
@@ -142,8 +210,11 @@ function openPrint(innerHTML){
   let layer=document.getElementById("coe-print-layer");
   if(!layer){layer=document.createElement("div");layer.id="coe-print-layer";layer.style.display="none";document.body.appendChild(layer);}
   layer.innerHTML=innerHTML;
-  window.print();
-  setTimeout(()=>{layer.innerHTML="";},1500);
+  // Small delay ensures DOM is painted before print dialog opens
+  setTimeout(()=>{
+    window.print();
+    setTimeout(()=>{layer.innerHTML="";},2000);
+  },120);
 }
 function btn(text,onclick,variant="primary",extraStyle={}){
   const styles={primary:{background:C.teal,color:"white",border:"none"},outline:{background:"white",color:C.teal,border:`1.5px solid ${C.teal}`},danger:{background:"#FDEAEA",color:C.red,border:"1.5px solid #F0C0C0"},ghost:{background:"transparent",color:C.stone,border:`1.5px solid ${C.border}`}};
@@ -445,6 +516,7 @@ function buildSchedModal(){
     const hasAnyDate=activeEyes.some(eye=>schedData[eye]);
     if(hasAnyDate&&updated.status==="pending") updated.status="scheduled";
     saveRecords(state.records.map(x=>x.id===r.id?updated:x));
+    saveRecordRemote(updated);
     state.schedModal=null; render();
   },"primary"));
   box.appendChild(foot); overlay.appendChild(box);
@@ -481,11 +553,13 @@ function saveRecord(){
   const rec={...state.form,id:state.modal==="new"?uid():state.modal};
   const next=state.modal==="new"?[rec,...state.records]:state.records.map(r=>r.id===state.modal?rec:r);
   saveRecords(next); closeModal();
-  sendEmailBackup(rec);
+  saveRecordRemote(rec);
 }
 function deleteRecord(){
   if(!confirm("¿Eliminar esta cotización?"))return;
-  saveRecords(state.records.filter(r=>r.id!==state.modal)); closeModal();
+  const id=state.modal;
+  saveRecords(state.records.filter(r=>r.id!==id)); closeModal();
+  deleteRecordRemote(id);
 }
 
 function buildModalDOM(){
@@ -655,10 +729,6 @@ function buildDailyView(){
   function renderDay(){
     wrap.innerHTML="";
 
-    // Remove any previous print layer
-    const oldPrint=document.getElementById("coe-print-layer");
-    if(oldPrint) oldPrint.remove();
-
     const topRow=document.createElement("div"); topRow.style.cssText="display:flex;gap:10px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap;";
     const dateFld=document.createElement("div"); dateFld.style.flex="1";
     const di=inp(selDate,v=>{selDate=v;renderDay();},"","date",{maxWidth:"220px"});
@@ -820,7 +890,8 @@ function render(){
 
   // Header
   const header=document.createElement("div"); header.className="app-header"; header.style.cssText=`background:${C.ink};color:white;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;`;
-  const titleEl=document.createElement("div"); titleEl.style.cssText="font-weight:800;font-size:1rem;"; titleEl.innerHTML=`👁 COE <span style="color:#7EC8C8;">·</span> Cirugías`;
+  const syncIcon=state.syncing?'<span style="font-size:0.65rem;color:#7EC8C8;font-weight:400;margin-left:4px;">⟳ sincronizando…</span>':state.syncError?'<span style="font-size:0.65rem;color:#C05C10;font-weight:400;margin-left:4px;">⚠ sin conexión</span>':'<span style="font-size:0.65rem;color:#7EC8C8;font-weight:400;margin-left:4px;">☁</span>';
+  const titleEl=document.createElement("div"); titleEl.style.cssText="font-weight:800;font-size:1rem;"; titleEl.innerHTML=`👁 COE <span style="color:#7EC8C8;">·</span> Cirugías ${syncIcon}`;
   const statsBox=document.createElement("div"); statsBox.style.cssText="display:flex;gap:14px;";
   [["total","Total","#C8C0B8"],["pending","Pend.","#B07D2A"],["noAnest","Anest.","#C05C10"],["done","Op.","#7EC8C8"]].forEach(([k,l,c])=>{
     const s=document.createElement("div"); s.style.textAlign="center";
@@ -852,6 +923,30 @@ function render(){
       alert.innerHTML=`<span>⚠️</span><span style="font-weight:700;color:${C.orange};">${stats.noAnest} paciente${stats.noAnest>1?"s":""} sin anestesia</span>`;
       alert.addEventListener("click",()=>{state.filter="noAnest";render();}); content.appendChild(alert);
     }
+
+    // Duplicate detection
+    const nameMap={};
+    live.forEach(r=>{const k=r.name.trim().toLowerCase();if(!nameMap[k])nameMap[k]=[];nameMap[k].push(r);});
+    const dupGroups=Object.values(nameMap).filter(g=>g.length>1);
+    const dupCount=dupGroups.reduce((s,g)=>s+g.length,0);
+    if(dupCount>0){
+      const dupAlert=document.createElement("div"); dupAlert.style.cssText=`background:#FDE8E8;border:1.5px solid #F0A0A0;border-radius:11px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;`;
+      const dupMsg=document.createElement("span"); dupMsg.innerHTML=`<span style="font-weight:700;color:${C.red};">🔁 ${dupCount} registros duplicados detectados (${dupGroups.length} nombre${dupGroups.length>1?"s":""})</span>`;
+      const dedupBtn=document.createElement("button"); dedupBtn.textContent="Eliminar duplicados"; dedupBtn.style.cssText=`background:${C.red};color:white;border:none;padding:6px 14px;border-radius:8px;font-size:0.8rem;font-weight:700;cursor:pointer;white-space:nowrap;`;
+      dedupBtn.addEventListener("click",()=>{
+        const names=dupGroups.map(g=>g.map(r=>r.name).join(", ")).join("\n");
+        if(!confirm(`Se conservará solo el registro más reciente de cada nombre duplicado:\n\n${names}\n\n¿Continuar?`))return;
+        // Keep first occurrence (most recent since list is newest-first), delete rest
+        const seen=new Set(); const toDelete=[];
+        live.forEach(r=>{const k=r.name.trim().toLowerCase();if(seen.has(k)){toDelete.push(r.id);}else{seen.add(k);}});
+        const cleaned=state.records.filter(r=>!toDelete.includes(r.id));
+        saveRecords(cleaned);
+        toDelete.forEach(id=>deleteRecordRemote(id));
+        render();
+      });
+      dupAlert.appendChild(dupMsg); dupAlert.appendChild(dedupBtn); content.appendChild(dupAlert);
+    }
+
     const actRow=document.createElement("div"); actRow.style.cssText="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center;";
     actRow.appendChild(btn("＋ Nueva",()=>openModal("new")));
     const searchInp=document.createElement("input"); searchInp.placeholder="Buscar…"; searchInp.value=state.search; searchInp.style.cssText=`flex:1;min-width:140px;padding:10px 12px;border:1.5px solid ${C.border};border-radius:9px;font-size:0.88rem;outline:none;`;
@@ -956,14 +1051,18 @@ function render(){
           schedBtn.title="Programar fecha"; actions.appendChild(schedBtn);
           const doneBtn=btn("✅ Operado",()=>{
             if(!confirm("¿Marcar a "+r.name+" como operado/a?"))return;
-            saveRecords(state.records.map(x=>x.id===r.id?{...x,status:"done"}:x));
+            const updated={...r,status:"done"};
+            saveRecords(state.records.map(x=>x.id===r.id?updated:x));
+            saveRecordRemote(updated);
           },"ghost",{padding:"7px 10px",fontSize:"0.78rem",color:C.green,border:"1.5px solid #B8E0C8",borderRadius:"8px",whiteSpace:"nowrap"});
           actions.appendChild(doneBtn);
         } else {
           const doneEl=document.createElement("div"); doneEl.style.cssText=`font-size:1rem;color:${C.green};text-align:center;font-weight:700;padding:4px 0;`; doneEl.textContent="✅ Op.";
           const undoBtn=btn("↩ Revertir",()=>{
             if(!confirm("¿Revertir a pendiente?"))return;
-            saveRecords(state.records.map(x=>x.id===r.id?{...x,status:"pending"}:x));
+            const updated={...r,status:"pending"};
+            saveRecords(state.records.map(x=>x.id===r.id?updated:x));
+            saveRecordRemote(updated);
           },"ghost",{padding:"6px 9px",fontSize:"0.75rem",color:C.stone,border:"1.5px solid "+C.border,borderRadius:"8px",whiteSpace:"nowrap"});
           actions.appendChild(doneEl); actions.appendChild(undoBtn);
         }
@@ -1031,9 +1130,16 @@ function render(){
           const copy={...JSON.parse(JSON.stringify(r)),id:uid(),name:r.name+" (copia)",status:"pending"};
           (copy.activeEyes||[]).forEach(eye=>{if(copy.eyes?.[eye]){copy.eyes[eye].dateScheduled="";copy.eyes[eye].dateTentative="";}});
           saveRecords([copy,...state.records]);
+          saveRecordRemote(copy);
         },"ghost",{padding:"6px 9px",fontSize:"0.75rem",color:C.stone,border:"1.5px solid "+C.border,borderRadius:"8px",whiteSpace:"nowrap"});
-        dupBtn.title="Duplicar paciente (útil para segundo ojo)";
-        actions.appendChild(dupBtn);
+        const delBtn=btn("🗑",()=>{
+          if(!confirm("¿Eliminar a "+r.name+"?"))return;
+          if(!confirm("⚠️ Confirma: esto borrará permanentemente el registro de "+r.name+". ¿Continuar?"))return;
+          saveRecords(state.records.filter(x=>x.id!==r.id));
+          deleteRecordRemote(r.id);
+        },"ghost",{padding:"7px 10px",fontSize:"0.85rem",color:C.red,border:"1.5px solid #F0C0C0",borderRadius:"8px",whiteSpace:"nowrap"});
+        delBtn.title="Eliminar registro";
+        actions.appendChild(delBtn);
 
         row.appendChild(actions);
         tableWrap.appendChild(row);
@@ -1099,14 +1205,18 @@ function weeklyBackup(force){
     `=== CSV ===\n${csv}`
   );
   localStorage.setItem(KEY, String(now));
-  window.location.href=`mailto:${BACKUP_EMAIL}?subject=${subject}&body=${body}`;
+  const a=document.createElement("a");
+  a.href=`mailto:${BACKUP_EMAIL}?subject=${subject}&body=${body}`;
+  a.style.display="none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>document.body.removeChild(a),500);
 }
 
 // ── INIT ──────────────────────────────────────────────────────
-loadRecords();
+loadRecords(); // async — loads local first, then syncs from Supabase
 render();
-// Weekly backup check — triggers after short delay so app loads first
-setTimeout(()=>{ weeklyBackup(false); }, 2000);
+setTimeout(()=>{ weeklyBackup(false); }, 3000);
 </script>
 </body>
 </html>
