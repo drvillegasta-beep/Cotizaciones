@@ -800,6 +800,9 @@ function buildDailyView(){
           <div style="font-size:0.8rem;color:#888;margin-top:2px;">${pts2.length} paciente${pts2.length!==1?"s":""} programado${pts2.length!==1?"s":""}</div>
         </div>
         ${cardsHTML}
+        <div style="margin-top:20px;padding:14px 16px;background:#0D6B72;border-radius:8px;text-align:center;font-family:-apple-system,sans-serif;">
+          <div style="color:white;font-size:1.05rem;font-weight:900;">Para programación llame al 459 100 0431 o al 459 134 5529</div>
+        </div>
       `);
     },"outline");
     topRow.appendChild(printBtn);
@@ -962,7 +965,28 @@ function render(){
   });
 
   const rightSide=document.createElement("div"); rightSide.style.cssText="display:flex;align-items:center;";
+  // Refresh button — prominent, forces full sync from Supabase
+  const refreshBtn=document.createElement("button");
+  refreshBtn.title="Actualizar desde Supabase";
+  refreshBtn.textContent="🔄 Actualizar";
+  refreshBtn.style.cssText="background:#7EC8C8;color:#1A1814;border:none;border-radius:8px;padding:7px 13px;font-size:0.85rem;font-weight:900;cursor:pointer;margin-left:8px;white-space:nowrap;letter-spacing:0.01em;";
+  refreshBtn.addEventListener("click",async()=>{
+    refreshBtn.textContent="⟳ Cargando…";
+    refreshBtn.disabled=true;
+    refreshBtn.style.opacity="0.7";
+    const remote=await sbLoad();
+    if(remote.length>0){
+      state.records=applyAuto(remote);
+      localStorage.setItem("oftalmo-v3",JSON.stringify(state.records));
+    }
+    refreshBtn.textContent="🔄 Actualizar";
+    refreshBtn.disabled=false;
+    refreshBtn.style.opacity="1";
+    render();
+  });
+
   rightSide.appendChild(statsBox);
+  rightSide.appendChild(refreshBtn);
   rightSide.appendChild(syncBtn);
   rightSide.appendChild(exportBtn);
   rightSide.appendChild(importBtn);
