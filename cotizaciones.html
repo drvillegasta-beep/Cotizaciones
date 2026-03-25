@@ -120,9 +120,12 @@ async function loadRecords(){
   // Then sync from Supabase
   state.syncing=true; render();
   const remote=await sbLoad();
-  state.records=applyAuto(remote);
-  // Mirror to localStorage
-  localStorage.setItem("oftalmo-v3",JSON.stringify(state.records));
+  // Only replace local data if Supabase has records — prevents wiping local data when Supabase is empty
+  if(remote.length>0){
+    state.records=applyAuto(remote);
+    localStorage.setItem("oftalmo-v3",JSON.stringify(state.records));
+  }
+  // If Supabase is empty but we have local data, keep local (user needs to tap ☁️ to upload)
   state.syncing=false; render();
 }
 function saveCustomSurgeries(){localStorage.setItem("oftalmo-custom-surg",JSON.stringify(state.customSurgeries));}
@@ -899,12 +902,71 @@ function render(){
     statsBox.appendChild(s);
   });
   const backupBtn=document.createElement("button");
-  backupBtn.title="Backup por email";
+  backupBtn.title="Backup semanal por email";
   backupBtn.textContent="📤";
-  backupBtn.style.cssText="background:none;border:1px solid #555;color:#C8C0B8;border-radius:8px;padding:5px 9px;font-size:1rem;cursor:pointer;margin-left:10px;";
+  backupBtn.style.cssText="background:none;border:1px solid #555;color:#C8C0B8;border-radius:8px;padding:5px 9px;font-size:1rem;cursor:pointer;margin-left:6px;";
   backupBtn.addEventListener("click",()=>weeklyBackup(true));
+
+  // Export JSON — descarga todos los datos
+  const exportBtn=document.createElement("button");
+  exportBtn.title="Exportar JSON (respaldo)";
+  exportBtn.textContent="⬇️";
+  exportBtn.style.cssText="background:none;border:1px solid #555;color:#C8C0B8;border-radius:8px;padding:5px 9px;font-size:1rem;cursor:pointer;margin-left:6px;";
+  exportBtn.addEventListener("click",()=>{
+    const data=JSON.stringify(state.records,null,2);
+    const blob=new Blob([data],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url;
+    a.download=`COE_backup_${new Date().toISOString().split("T")[0]}.json`;
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},1000);
+  });
+
+  // Import JSON — restaura desde archivo
+  const importBtn=document.createElement("button");
+  importBtn.title="Importar JSON (restaurar)";
+  importBtn.textContent="⬆️";
+  importBtn.style.cssText="background:none;border:1px solid #555;color:#C8C0B8;border-radius:8px;padding:5px 9px;font-size:1rem;cursor:pointer;margin-left:6px;";
+  importBtn.addEventListener("click",()=>{
+    const inp=document.createElement("input"); inp.type="file"; inp.accept=".json";
+    inp.addEventListener("change",async e=>{
+      const file=e.target.files[0]; if(!file) return;
+      try{
+        const text=await file.text();
+        const imported=JSON.parse(text);
+        if(!Array.isArray(imported)) throw new Error("Formato inválido");
+        if(!confirm(`¿Importar ${imported.length} registros? Esto REEMPLAZARÁ todos los datos actuales.`)) return;
+        saveRecords(imported);
+        importBtn.textContent="⟳"; importBtn.disabled=true;
+        for(const rec of imported){ await sbSave(rec); }
+        importBtn.textContent="⬆️"; importBtn.disabled=false;
+        alert(`✅ ${imported.length} registros importados y sincronizados.`);
+        render();
+      }catch(err){ alert("Error al importar: "+err.message); }
+    });
+    inp.click();
+  });
+
+  // Sync all local → Supabase
+  const syncBtn=document.createElement("button");
+  syncBtn.title="Subir todos los registros locales a Supabase";
+  syncBtn.textContent="☁️";
+  syncBtn.style.cssText="background:none;border:1px solid #7EC8C8;color:#7EC8C8;border-radius:8px;padding:5px 9px;font-size:1rem;cursor:pointer;margin-left:6px;";
+  syncBtn.addEventListener("click",async()=>{
+    if(!state.records.length){alert("No hay registros locales.");return;}
+    if(!confirm(`¿Subir ${state.records.length} registros a Supabase?`))return;
+    syncBtn.textContent="⟳"; syncBtn.disabled=true;
+    for(const rec of state.records){ await sbSave(rec); }
+    syncBtn.textContent="☁️"; syncBtn.disabled=false;
+    alert(`✅ ${state.records.length} registros sincronizados con Supabase.`);
+  });
+
   const rightSide=document.createElement("div"); rightSide.style.cssText="display:flex;align-items:center;";
-  rightSide.appendChild(statsBox); rightSide.appendChild(backupBtn);
+  rightSide.appendChild(statsBox);
+  rightSide.appendChild(syncBtn);
+  rightSide.appendChild(exportBtn);
+  rightSide.appendChild(importBtn);
+  rightSide.appendChild(backupBtn);
   header.appendChild(titleEl); header.appendChild(rightSide); app.appendChild(header);
 
   // Tabs
@@ -1120,6 +1182,13 @@ function render(){
             ${eyeBlocks}
             <div style="margin-top:20px;padding:12px 16px;background:#F7F5F2;border-radius:8px;font-size:0.75rem;color:#888;line-height:1.6;font-family:-apple-system,sans-serif;">
               Esta cotización es informativa y puede estar sujeta a cambios según evolución clínica. Los precios incluyen los conceptos detallados y no incluyen medicamentos o estudios preoperatorios adicionales.
+            </div>
+            <div style="margin-top:16px;padding:14px 16px;background:#0D6B72;border-radius:8px;text-align:center;font-family:-apple-system,sans-serif;">
+              <div style="color:white;font-size:1.05rem;font-weight:900;letter-spacing:0.01em;">Para programación llame al 459 100 0431 o al 459 134 5529</div>
+            </div>
+            <div style="margin-top:16px;padding:14px 16px;background:#0D6B72;border-radius:8px;text-align:center;font-family:-apple-system,sans-serif;">
+              <div style="font-size:1.1rem;font-weight:900;color:white;letter-spacing:0.01em;">📞 Para programación llame al</div>
+              <div style="font-size:1.45rem;font-weight:900;color:white;margin-top:4px;letter-spacing:0.03em;">459 100 0431 &nbsp;·&nbsp; 459 134 5529</div>
             </div>
           `);
         },"ghost",{padding:"7px 10px",fontSize:"0.85rem",color:C.teal,border:"1.5px solid "+C.teal,borderRadius:"8px",whiteSpace:"nowrap"});
