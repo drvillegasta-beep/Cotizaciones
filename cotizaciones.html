@@ -553,7 +553,7 @@ function validateForm(){
 }
 function saveRecord(){
   const e=validateForm(); if(Object.keys(e).length){state.errors=e;render();return;}
-  const rec={...state.form,id:state.modal==="new"?uid():state.modal};
+  const rec={...state.form,id:state.modal==="new"?uid():state.modal,createdAt:state.modal==="new"?new Date().toISOString():(state.records.find(r=>r.id===state.modal)?.createdAt||new Date().toISOString())};
   const next=state.modal==="new"?[rec,...state.records]:state.records.map(r=>r.id===state.modal?rec:r);
   saveRecords(next); closeModal();
   saveRecordRemote(rec);
@@ -1049,15 +1049,24 @@ function render(){
     const sortBar=document.createElement("div"); sortBar.style.cssText="display:flex;gap:7px;margin-bottom:12px;align-items:center;flex-wrap:wrap;";
     const sortLabel=document.createElement("span"); sortLabel.textContent="Ordenar:"; sortLabel.style.cssText=`font-size:0.75rem;color:${C.stone};font-weight:700;`;
     sortBar.appendChild(sortLabel);
-    [["name","Nombre"],["date","Fecha"],["status","Estado"],["total","Total"]].forEach(([k,l])=>{
+    [["name","Nombre"],["date","Captura"],["status","Estado"],["total","Total"]].forEach(([k,l])=>{
       const sb=document.createElement("button");
       const active=state.sortBy===k;
       sb.style.cssText=`padding:4px 11px;border-radius:20px;font-size:0.74rem;font-weight:700;cursor:pointer;border:1.5px solid ${active?C.teal:C.border};background:${active?C.teal:"white"};color:${active?"white":C.stone};`;
       sb.textContent=active?(state.sortDir==="asc"?l+" ↑":l+" ↓"):l;
+      sb.dataset.sortkey=k; sb.dataset.sortlabel=l;
       sb.addEventListener("click",()=>{
         if(state.sortBy===k) state.sortDir=state.sortDir==="asc"?"desc":"asc";
         else{state.sortBy=k;state.sortDir="asc";}
-        render();
+        // Update buttons visually without full render
+        sortBar.querySelectorAll("button[data-sortkey]").forEach(b=>{
+          const bk=b.dataset.sortkey; const bl=b.dataset.sortlabel; const ba=state.sortBy===bk;
+          b.style.border=`1.5px solid ${ba?C.teal:C.border}`;
+          b.style.background=ba?C.teal:"white";
+          b.style.color=ba?"white":C.stone;
+          b.textContent=ba?(state.sortDir==="asc"?bl+" ↑":bl+" ↓"):bl;
+        });
+        renderTable();
       });
       sortBar.appendChild(sb);
     });
@@ -1073,10 +1082,10 @@ function render(){
         return(!q||r.name.toLowerCase().includes(q)||st.includes(q))&&(state.filter==="all"||r.status===state.filter||(state.filter==="noAnest"&&r.status!=="done"&&(r.activeEyes||[]).some(e=>!r.eyes?.[e]?.costs?.anest)));
       }).sort((a,b)=>{
         const bestDate=r=>(r.activeEyes||[]).map(e=>r.eyes?.[e]?.dateScheduled||r.eyes?.[e]?.dateTentative).filter(Boolean).sort()[0]||"";
-        const totalAmt=r=>(r.activeEyes||[]).reduce((s,e)=>{const c=r.eyes?.[e]?.costs||{};return s+["gastos","anest","implantes","otrosAmt"].reduce((ss,k)=>ss+(parseFloat(c[k])||0),0);},0);
+        const totalAmt=r=>(r.activeEyes||[]).reduce((s,eye2)=>{const c=r.eyes?.[eye2]?.costs||{};return s+["gastos","anest","implantes","otrosAmt"].reduce((ss,field)=>ss+(parseFloat(c[field])||0),0);},0);
         let cmp=0;
         if(state.sortBy==="name") cmp=a.name.localeCompare(b.name,"es");
-        else if(state.sortBy==="date"){const dA=bestDate(a),dB=bestDate(b);if(!dA&&!dB)cmp=0;else if(!dA)cmp=1;else if(!dB)cmp=-1;else cmp=dA.localeCompare(dB);}
+        else if(state.sortBy==="date"){const dA=a.createdAt||a.id||"";const dB=b.createdAt||b.id||"";cmp=dA.localeCompare(dB);}
         else if(state.sortBy==="status") cmp=(a.status||"").localeCompare(b.status||"");
         else if(state.sortBy==="total") cmp=totalAmt(a)-totalAmt(b);
         return state.sortDir==="asc"?cmp:-cmp;
