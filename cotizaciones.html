@@ -388,7 +388,20 @@ function makeEyePanel(eyeData,onchange,surgErr){
     const isMulti=MULTIFOCAL_TYPES.includes(data.lioType);
 
     // Row 1: Tipo + Potencia (with stepper)
-    lioFields.appendChild(fldWrap("Tipo",sel(data.lioType,v=>{update("lioType",v);renderLio();},opts)));
+    lioFields.appendChild(fldWrap("Tipo",sel(data.lioType,v=>{
+      update("lioType",v);
+      // Autocomplete implantes price from LIO price settings
+      const prices=JSON.parse(localStorage.getItem("coe-lio-prices")||"{}");
+      const isToric2=TORIC_TYPES.includes(v);
+      const isMulti2=MULTIFOCAL_TYPES.includes(v);
+      let priceKey="monofocal";
+      if(isMulti2) priceKey="multifocal";
+      else if(isToric2) priceKey="torico";
+      if(prices[priceKey]&&!(data.costs?.implantes)){
+        update("costs",{...data.costs,implantes:prices[priceKey]});
+      }
+      renderLio();
+    },opts)));
 
     // Power field with +/- buttons
     const powerWrap=document.createElement("div");
@@ -487,7 +500,7 @@ function buildSchedModal(){
   const body=document.createElement("div"); body.style.cssText="padding:16px;";
   const activeEyes=r.activeEyes||[];
   let schedData={};
-  activeEyes.forEach(eye=>{schedData[eye]=r.eyes?.[eye]?.dateScheduled||"";});
+  activeEyes.forEach(eye=>{schedData[eye]={date:r.eyes?.[eye]?.dateScheduled||"",time:r.eyes?.[eye]?.timeScheduled||""};});
 
   if(activeEyes.length===0){
     body.innerHTML=`<div style="text-align:center;padding:20px;color:${C.stone};">No hay ojos activos en esta cotización.</div>`;
@@ -501,9 +514,15 @@ function buildSchedModal(){
       const surgInfo=document.createElement("div"); surgInfo.style.cssText=`font-size:0.84rem;font-weight:700;margin-bottom:8px;`; surgInfo.textContent=curSurg;
       const rl=RISK_LEVELS.find(x=>x.val===(r.eyes?.[eye]?.risk||"standard"))||RISK_LEVELS[0];
       const rb=document.createElement("span"); rb.style.cssText=`display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:0.7rem;font-weight:700;background:${rl.pale};color:${rl.color};margin-bottom:8px;`; rb.textContent=`${rl.icon} ${rl.label}`;
-      const di=inp(schedData[eye],v=>schedData[eye]=v,"","date",{borderColor:schedData[eye]?C.teal:C.border});
-      if(schedData[eye]) di.style.borderColor=C.teal;
-      eyeWrap.appendChild(eyeLbl); eyeWrap.appendChild(surgInfo); eyeWrap.appendChild(rb); eyeWrap.appendChild(di);
+      // Date + Time row
+      const dtRow=document.createElement("div"); dtRow.style.cssText="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;";
+      const di=inp(schedData[eye].date,v=>{schedData[eye].date=v;di.style.borderColor=v?C.teal:C.border;},"","date");
+      if(schedData[eye].date) di.style.borderColor=C.teal;
+      const timeInp=document.createElement("input"); timeInp.type="time"; timeInp.value=schedData[eye].time||"";
+      timeInp.style.cssText=`padding:11px 10px;border:1.5px solid ${C.border};border-radius:9px;font-size:16px;color:${C.ink};outline:none;font-weight:700;background:white;width:110px;`;
+      timeInp.addEventListener("change",e=>schedData[eye].time=e.target.value);
+      dtRow.appendChild(di); dtRow.appendChild(timeInp);
+      eyeWrap.appendChild(eyeLbl); eyeWrap.appendChild(surgInfo); eyeWrap.appendChild(rb); eyeWrap.appendChild(dtRow);
       body.appendChild(eyeWrap);
     });
   }
@@ -511,12 +530,12 @@ function buildSchedModal(){
 
   const foot=document.createElement("div"); foot.style.cssText=`padding:12px 16px 16px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid ${C.border};`;
   foot.appendChild(btn("Cancelar",()=>{state.schedModal=null;render();},"ghost"));
-  foot.appendChild(btn("💾 Guardar fechas",()=>{
+  foot.appendChild(btn("💾 Guardar",()=>{
     const updated={...r,eyes:{...r.eyes}};
     activeEyes.forEach(eye=>{
-      if(schedData[eye]) updated.eyes[eye]={...updated.eyes[eye],dateScheduled:schedData[eye]};
+      if(schedData[eye].date) updated.eyes[eye]={...updated.eyes[eye],dateScheduled:schedData[eye].date,timeScheduled:schedData[eye].time||""};
     });
-    const hasAnyDate=activeEyes.some(eye=>schedData[eye]);
+    const hasAnyDate=activeEyes.some(eye=>schedData[eye].date);
     if(hasAnyDate&&updated.status==="pending") updated.status="scheduled";
     saveRecords(state.records.map(x=>x.id===r.id?updated:x));
     saveRecordRemote(updated);
@@ -675,7 +694,14 @@ function buildDayCard(r,selDate,index){
     const rb=document.createElement("span"); rb.style.cssText=`display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:0.71rem;font-weight:700;background:${rl.pale};color:${rl.color};`; rb.textContent=`${rl.icon} ${rl.label}`; badges.appendChild(rb);
   });
   if(r.eyeFirst&&eyes.length>1) badges.innerHTML+=`<span style="font-size:0.72rem;color:${C.stone};">inicia ${r.eyeFirst}</span>`;
-  cardHead.appendChild(nameBox); cardHead.appendChild(badges); card.appendChild(cardHead);
+  // Show time if set
+  const times=eyes.map(eye=>r.eyes?.[eye]?.timeScheduled).filter(Boolean);
+  const displayTime=times[0]||"";
+  if(displayTime) badges.innerHTML+=`<span style="background:#E8F4F5;color:${C.teal};border-radius:8px;padding:3px 9px;font-size:0.8rem;font-weight:800;">⏰ ${displayTime}</span>`;
+  // Drag handle
+  const dragHandle=document.createElement("div"); dragHandle.innerHTML="⠿"; dragHandle.style.cssText=`font-size:1.2rem;color:#C8C0B8;cursor:grab;padding:0 6px;user-select:none;flex-shrink:0;`; dragHandle.title="Arrastrar para reordenar";
+  dragHandle.setAttribute("draggable","false"); // handle is visual only, card is draggable
+  cardHead.appendChild(nameBox); cardHead.appendChild(badges); cardHead.appendChild(dragHandle); card.appendChild(cardHead);
 
   const eyeGrid=document.createElement("div"); eyeGrid.style.cssText="padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;";
   eyes.forEach(eye=>{
@@ -780,7 +806,7 @@ function buildDailyView(){
             h+=`</div>`;
             if(ed.lioType==="Premium personalizado") h+=`<div style="margin-top:5px;padding:6px 9px;background:#FDF4E3;border:1.5px solid #E8C97A;border-radius:7px;font-size:0.78rem;color:#B07D2A;font-weight:700;">⚠️ Recordar marcaje pre-quirúrgico</div>`;
           }
-          if(ed.dateScheduled) h+=`<div style="margin-top:6px;font-size:0.78rem;color:#555;">📅 ${fmtDL(ed.dateScheduled)}</div>`;
+          if(ed.dateScheduled) h+=`<div style="margin-top:6px;font-size:0.78rem;color:#555;">📅 ${fmtDL(ed.dateScheduled)}${ed.timeScheduled?` · ⏰ ${ed.timeScheduled}`:""}</div>`;
           h+=`</div>`;
         });
         h+=`</div>`;
@@ -813,11 +839,47 @@ function buildDailyView(){
     const titleD=document.createElement("div"); titleD.style.cssText=`font-weight:700;color:${C.teal};margin-top:4px;`; titleD.textContent=`Programación Quirúrgica — ${days[dt.getDay()]}, ${fmtDL(selDate)}`;
     header.appendChild(titleD);
     const live=applyAuto(state.records);
-    const pts=live.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye])));
+    const pts=live.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye]))).sort((a,b)=>{
+      const tA=(a.activeEyes||[]).map(e=>a.eyes?.[e]?.timeScheduled).filter(Boolean)[0]||"99:99";
+      const tB=(b.activeEyes||[]).map(e=>b.eyes?.[e]?.timeScheduled).filter(Boolean)[0]||"99:99";
+      return tA.localeCompare(tB);
+    });
     const countD=document.createElement("div"); countD.style.cssText=`font-size:0.8rem;color:${C.stone};margin-top:2px;`; countD.textContent=`${pts.length} paciente${pts.length!==1?"s":""} programado${pts.length!==1?"s":""}`;
     header.appendChild(countD); wrap.appendChild(header);
     if(pts.length===0){const empty=document.createElement("div");empty.style.cssText=`text-align:center;padding:44px 24px;color:${C.stone};`;empty.innerHTML=`<div style="font-size:2.5rem;margin-bottom:10px;opacity:0.3;">📅</div><div style="font-weight:700;">Sin cirugías para este día</div>`;wrap.appendChild(empty);return;}
-    pts.forEach((r,i)=>wrap.appendChild(buildDayCard(r,selDate,i)));
+    // Drag-to-reorder
+    const dayOrder=JSON.parse(localStorage.getItem("coe-day-order-"+selDate)||"null");
+    let orderedPts=pts.slice();
+    if(dayOrder){
+      const ordered=[];
+      dayOrder.forEach(id=>{const r=orderedPts.find(x=>x.id===id);if(r)ordered.push(r);});
+      orderedPts.forEach(r=>{if(!ordered.find(x=>x.id===r.id))ordered.push(r);});
+      orderedPts=ordered;
+    }
+    let dragSrcId=null;
+    orderedPts.forEach((r,i)=>{
+      const card=buildDayCard(r,selDate,i);
+      card.setAttribute("draggable","true");
+      card.dataset.recid=r.id;
+      card.style.cursor="grab";
+      card.addEventListener("dragstart",e=>{dragSrcId=r.id;card.style.opacity="0.5";e.dataTransfer.effectAllowed="move";});
+      card.addEventListener("dragend",()=>{card.style.opacity="1";});
+      card.addEventListener("dragover",e=>{e.preventDefault();e.dataTransfer.dropEffect="move";card.style.outline=`2px dashed ${C.teal}`;});
+      card.addEventListener("dragleave",()=>{card.style.outline="none";});
+      card.addEventListener("drop",e=>{
+        e.preventDefault(); card.style.outline="none";
+        if(dragSrcId===r.id) return;
+        // Reorder in DOM
+        const allCards=[...wrap.querySelectorAll("[data-recid]")];
+        const ids=allCards.map(c=>c.dataset.recid);
+        const fromIdx=ids.indexOf(dragSrcId); const toIdx=ids.indexOf(r.id);
+        if(fromIdx<0||toIdx<0) return;
+        const newIds=[...ids]; newIds.splice(fromIdx,1); newIds.splice(toIdx,0,dragSrcId);
+        localStorage.setItem("coe-day-order-"+selDate,JSON.stringify(newIds));
+        renderDay();
+      });
+      wrap.appendChild(card);
+    });
   }
   renderDay(); return wrap;
 }
@@ -995,7 +1057,7 @@ function render(){
 
   // Tabs
   const tabs=document.createElement("div"); tabs.className="app-tabs"; tabs.style.cssText=`display:flex;background:white;border-bottom:1px solid ${C.border};padding:0 14px;gap:2px;overflow-x:auto;`;
-  [["list","📋 Cotizaciones"],["day","🗓 Día"],["history","📂 Historial"]].forEach(([k,l])=>{
+  [["list","📋 Cotizaciones"],["day","🗓 Día"],["history","📂 Historial"],["settings","⚙️ Config"]].forEach(([k,l])=>{
     const tb=document.createElement("button"); tb.style.cssText=`padding:12px 14px;font-size:0.83rem;font-weight:${state.tab===k?800:500};color:${state.tab===k?C.teal:C.stone};background:none;border:none;border-bottom:3px solid ${state.tab===k?C.teal:"transparent"};cursor:pointer;white-space:nowrap;flex-shrink:0;`;
     tb.textContent=l; tb.addEventListener("click",()=>{state.tab=k;render();}); tabs.appendChild(tb);
   });
@@ -1252,6 +1314,40 @@ function render(){
 
   if(state.tab==="day") content.appendChild(buildDailyView());
   if(state.tab==="history") content.appendChild(buildHistoryView());
+  if(state.tab==="settings"){
+    const prices=JSON.parse(localStorage.getItem("coe-lio-prices")||"{}");
+    const sec=document.createElement("div"); sec.style.cssText="padding:16px;";
+
+    // LIO Prices section
+    const h2=document.createElement("div"); h2.style.cssText=`font-weight:800;font-size:1rem;color:${C.teal};margin-bottom:4px;`; h2.textContent="💲 Precios base de LIO (Implantes)";
+    const sub=document.createElement("div"); sub.style.cssText=`font-size:0.8rem;color:${C.stone};margin-bottom:16px;`; sub.textContent="Al seleccionar el tipo de LIO en un paciente, se autocompleta el campo Implantes si está vacío.";
+    sec.appendChild(h2); sec.appendChild(sub);
+
+    const grid=document.createElement("div"); grid.style.cssText="display:grid;gap:12px;max-width:400px;";
+    [["monofocal","Monofocal"],["torico","Tórico"],["multifocal","Multifocal"]].forEach(([k,label])=>{
+      const row=document.createElement("div"); row.style.cssText="display:flex;align-items:center;gap:10px;background:white;border-radius:10px;padding:12px 14px;border:1.5px solid "+C.border+";";
+      const lbl=document.createElement("div"); lbl.style.cssText="font-weight:700;font-size:0.9rem;flex:1;"; lbl.textContent=label;
+      const inp2=document.createElement("input"); inp2.type="number"; inp2.min="0"; inp2.placeholder="0.00";
+      inp2.value=prices[k]||"";
+      inp2.style.cssText=`width:130px;padding:8px 10px;border:1.5px solid ${C.border};border-radius:8px;font-size:0.95rem;font-weight:700;color:${C.ink};outline:none;text-align:right;`;
+      inp2.addEventListener("input",e=>{
+        const p=JSON.parse(localStorage.getItem("coe-lio-prices")||"{}");
+        p[k]=e.target.value;
+        localStorage.setItem("coe-lio-prices",JSON.stringify(p));
+      });
+      const prefix=document.createElement("span"); prefix.textContent="$"; prefix.style.cssText=`color:${C.stone};font-weight:700;`;
+      row.appendChild(lbl); row.appendChild(prefix); row.appendChild(inp2);
+      grid.appendChild(row);
+    });
+    sec.appendChild(grid);
+
+    // Info note
+    const note=document.createElement("div"); note.style.cssText=`margin-top:20px;padding:12px 14px;background:#E8F4F5;border-radius:10px;font-size:0.8rem;color:${C.teal};line-height:1.6;max-width:400px;`;
+    note.innerHTML="<strong>¿Cómo funciona?</strong><br>Al capturar un paciente y seleccionar el tipo de LIO, el campo <em>Implantes</em> se llena automáticamente con el precio base configurado aquí. Puedes modificarlo por paciente si el precio varía.";
+    sec.appendChild(note);
+
+    content.appendChild(sec);
+  }
 
   app.appendChild(content);
   if(state.modal) app.appendChild(buildModalDOM());
