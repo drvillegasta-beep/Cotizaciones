@@ -349,7 +349,7 @@ function makeEyePanel(eyeData,onchange,surgErr){
   renderRisk(); riskSec.appendChild(riskGrid);
 
   // Surgery
-  const surgPicker=makeSurgeryPicker(data.surgery,v=>{data.surgery=v;onchange(data);},"Buscar cirugía…");
+  const surgPicker=makeSurgeryPicker(data.surgery,v=>{data.surgery=v;onchange(data);buildCostTable();},"Buscar cirugía…");
   wrap.appendChild(fldWrap("Procedimiento",surgPicker,true,surgErr));
 
   // Simultáneos
@@ -459,27 +459,83 @@ function makeEyePanel(eyeData,onchange,surgErr){
   dateGrid.appendChild(fldWrap("Fecha programada",schedInp));
   wrap.appendChild(dateGrid);
 
-  // Costs
+  // Costs — wrapped in rebuildCosts so it re-renders when surgery changes
   const costSec=document.createElement("div"); costSec.style.cssText=`padding-top:12px;border-top:1px solid ${C.border};`;
   const costTitle=document.createElement("div"); costTitle.style.cssText=`font-size:0.66rem;font-weight:800;text-transform:uppercase;color:${C.stone};margin-bottom:7px;`; costTitle.textContent="💰 Cotización"; costSec.appendChild(costTitle);
-  const costTable=document.createElement("div"); costTable.style.cssText=`border:1px solid ${C.border};border-radius:9px;overflow:hidden;`;
-  [["gastos","Gastos"],["anest","Anestesiólogo"],["implantes","Implantes"],["otrosAmt","Otros"]].forEach(([k,label])=>{
-    const row=document.createElement("div"); row.style.cssText=`display:grid;grid-template-columns:1fr 110px;border-bottom:1px solid ${C.border};`;
+  let costTable=document.createElement("div");
+
+  function buildCostTable(){
+    costTable.innerHTML="";
+    costTable.style.cssText=`border:1px solid ${C.border};border-radius:9px;overflow:hidden;`;
+
+    const isFaco=["Faco + LIO","Faco + LIO + Antiangio","Faco + Trabe","Faco + Vitre"].includes(data.surgery);
+
+    const mkRow=(k,label,isWarn)=>{
+      const row=document.createElement("div"); row.style.cssText=`display:grid;grid-template-columns:1fr 110px;border-bottom:1px solid ${C.border};`;
+      const lbl=document.createElement("div"); lbl.style.cssText=`padding:9px 12px;font-size:0.84rem;border-right:1px solid ${C.border};background:${isWarn?"#FEF0E6":C.cream};font-weight:${isWarn?700:500};color:${isWarn?C.orange:C.inkSoft};display:flex;align-items:center;`; lbl.textContent=(isWarn?"⚠️ ":"")+label;
+      const ni=document.createElement("input"); ni.type="number"; ni.placeholder="0.00"; ni.value=data.costs?.[k]||""; ni.style.cssText="border:none;background:white;padding:9px 12px;font-weight:700;text-align:right;font-family:inherit;font-size:0.9rem;outline:none;width:100%;";
+      ni.addEventListener("input",e=>{updateCost(k,e.target.value);refreshTotals();});
+      row.appendChild(lbl); row.appendChild(ni); return row;
+    };
+
+    // Gastos + Anestesiólogo always
     const noA=!data.costs?.anest||data.costs.anest==="";
-    const lbl=document.createElement("div"); lbl.style.cssText=`padding:9px 12px;font-size:0.84rem;border-right:1px solid ${C.border};background:${k==="anest"&&noA?"#FEF0E6":C.cream};font-weight:${k==="anest"?700:500};color:${k==="anest"&&noA?C.orange:C.inkSoft};display:flex;align-items:center;`; lbl.textContent=(k==="anest"&&noA?"⚠️ ":"")+label;
-    const ni=document.createElement("input"); ni.type="number"; ni.placeholder="0.00"; ni.value=data.costs?.[k]||""; ni.style.cssText="border:none;background:white;padding:9px 12px;font-weight:700;text-align:right;font-family:inherit;font-size:0.9rem;outline:none;width:100%;";
-    ni.addEventListener("input",e=>updateCost(k,e.target.value));
-    row.appendChild(lbl); row.appendChild(ni); costTable.appendChild(row);
-  });
-  const odRow=document.createElement("div"); odRow.style.cssText=`border-bottom:1px solid ${C.border};`;
-  const odInp=document.createElement("input"); odInp.type="text"; odInp.placeholder="Descripción otros…"; odInp.value=data.costs?.otrosDesc||""; odInp.style.cssText=`width:100%;border:none;background:#FAFAF8;padding:7px 12px;font-size:0.82rem;color:${C.inkSoft};outline:none;box-sizing:border-box;`;
-  odInp.addEventListener("input",e=>updateCost("otrosDesc",e.target.value)); odRow.appendChild(odInp); costTable.appendChild(odRow);
-  const totalRow=document.createElement("div"); totalRow.style.cssText=`display:grid;grid-template-columns:1fr 110px;background:${C.ink};`;
-  const totalLbl=document.createElement("div"); totalLbl.style.cssText="padding:9px 12px;font-weight:800;color:rgba(255,255,255,0.5);border-right:1px solid rgba(255,255,255,0.1);font-size:0.82rem;"; totalLbl.textContent="TOTAL";
-  const totalVal=document.createElement("div"); totalVal.style.cssText="padding:9px 12px;font-weight:800;text-align:right;color:#7EC8C8;";
-  function updateTotal(){const t=["gastos","anest","implantes","otrosAmt"].reduce((s,k)=>s+(parseFloat(data.costs?.[k])||0),0);totalVal.textContent=fmtCost(t)||"—";}
-  updateTotal(); wrap.addEventListener("input",updateTotal);
-  totalRow.appendChild(totalLbl); totalRow.appendChild(totalVal); costTable.appendChild(totalRow);
+    costTable.appendChild(mkRow("gastos","Gastos",false));
+    costTable.appendChild(mkRow("anest","Anestesiólogo",noA));
+
+    if(isFaco){
+      const lioHdr=document.createElement("div"); lioHdr.style.cssText=`padding:6px 12px;font-size:0.7rem;font-weight:800;text-transform:uppercase;color:${C.teal};background:${C.tealPale};border-bottom:1px solid ${C.border};`; lioHdr.textContent="🔬 Implante según LIO"; costTable.appendChild(lioHdr);
+      [["implantesMonofocal","Monofocal"],["implantesTorico","Tórico"],["implantesMultifocal","Multifocal"]].forEach(([k,label])=>{
+        costTable.appendChild(mkRow(k,label,false));
+      });
+    } else {
+      costTable.appendChild(mkRow("implantes","Implantes",false));
+    }
+
+    // Otros
+    costTable.appendChild(mkRow("otrosAmt","Otros",false));
+    const odRow=document.createElement("div"); odRow.style.cssText=`border-bottom:1px solid ${C.border};`;
+    const odInp=document.createElement("input"); odInp.type="text"; odInp.placeholder="Descripción otros…"; odInp.value=data.costs?.otrosDesc||""; odInp.style.cssText=`width:100%;border:none;background:#FAFAF8;padding:7px 12px;font-size:0.82rem;color:${C.inkSoft};outline:none;box-sizing:border-box;`;
+    odInp.addEventListener("input",e=>updateCost("otrosDesc",e.target.value)); odRow.appendChild(odInp); costTable.appendChild(odRow);
+
+    if(isFaco){
+      // 3 separate total rows
+      const totHdr=document.createElement("div"); totHdr.style.cssText=`padding:6px 12px;font-size:0.7rem;font-weight:800;text-transform:uppercase;color:white;background:${C.ink};border-bottom:1px solid rgba(255,255,255,0.1);`; totHdr.textContent="Totales por tipo de LIO"; costTable.appendChild(totHdr);
+      const totRows={};
+      [["implantesMonofocal","Monofocal"],["implantesTorico","Tórico"],["implantesMultifocal","Multifocal"]].forEach(([k,label])=>{
+        const row=document.createElement("div"); row.style.cssText=`display:grid;grid-template-columns:1fr 110px;border-bottom:1px solid rgba(255,255,255,0.08);background:${C.ink};`;
+        const lbl=document.createElement("div"); lbl.style.cssText=`padding:8px 12px;font-size:0.82rem;font-weight:700;color:rgba(255,255,255,0.6);border-right:1px solid rgba(255,255,255,0.1);`; lbl.textContent="Total "+label;
+        const val=document.createElement("div"); val.style.cssText="padding:8px 12px;font-weight:800;text-align:right;color:#7EC8C8;font-size:0.9rem;";
+        totRows[k]=val; row.appendChild(lbl); row.appendChild(val); costTable.appendChild(row);
+      });
+      function refreshTotals(){
+        const base=(parseFloat(data.costs?.gastos)||0)+(parseFloat(data.costs?.anest)||0)+(parseFloat(data.costs?.otrosAmt)||0);
+        [["implantesMonofocal","Monofocal"],["implantesTorico","Tórico"],["implantesMultifocal","Multifocal"]].forEach(([k])=>{
+          const t=base+(parseFloat(data.costs?.[k])||0);
+          if(totRows[k]) totRows[k].textContent=t>0?(fmtCost(t)||"—"):"—";
+        });
+      }
+      refreshTotals();
+      costTable.refreshTotals=refreshTotals;
+      wrap.addEventListener("input",refreshTotals);
+    } else {
+      // Single total
+      const totalRow=document.createElement("div"); totalRow.style.cssText=`display:grid;grid-template-columns:1fr 110px;background:${C.ink};`;
+      const totalLbl=document.createElement("div"); totalLbl.style.cssText="padding:9px 12px;font-weight:800;color:rgba(255,255,255,0.5);border-right:1px solid rgba(255,255,255,0.1);font-size:0.82rem;"; totalLbl.textContent="TOTAL";
+      const totalVal=document.createElement("div"); totalVal.style.cssText="padding:9px 12px;font-weight:800;text-align:right;color:#7EC8C8;";
+      function refreshTotals(){
+        const t=(parseFloat(data.costs?.gastos)||0)+(parseFloat(data.costs?.anest)||0)+(parseFloat(data.costs?.implantes)||0)+(parseFloat(data.costs?.otrosAmt)||0);
+        totalVal.textContent=fmtCost(t)||"—";
+      }
+      refreshTotals();
+      wrap.addEventListener("input",refreshTotals);
+      totalRow.appendChild(totalLbl); totalRow.appendChild(totalVal); costTable.appendChild(totalRow);
+    }
+  }
+
+  function refreshTotals(){ if(costTable.refreshTotals) costTable.refreshTotals(); }
+
+  buildCostTable();
   costSec.appendChild(costTable); wrap.appendChild(costSec);
   return wrap;
 }
@@ -557,6 +613,13 @@ function closeModal(){state.modal=null;render();}
 function hasCostZero(eyeData){
   const v=eyeData?.costs?.gastos;
   return v===""||v==null||isNaN(v)||parseFloat(v)===0;
+}
+function eyeTotal(c){
+  const base=(parseFloat(c?.gastos)||0)+(parseFloat(c?.anest)||0)+(parseFloat(c?.otrosAmt)||0)+(parseFloat(c?.implantes)||0);
+  const lioVals=["implantesMonofocal","implantesTorico","implantesMultifocal"].map(k=>parseFloat(c?.[k])||0).filter(v=>v>0);
+  // If faco LIO breakdown exists, use max (highest budget) for display
+  const lioExtra=lioVals.length>0?Math.max(...lioVals):0;
+  return base+lioExtra;
 }
 function validateForm(){
   const e={},f=state.form;
@@ -706,7 +769,7 @@ function buildDayCard(r,selDate,index){
   const eyeGrid=document.createElement("div"); eyeGrid.style.cssText="padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;";
   eyes.forEach(eye=>{
     const ed=r.eyes?.[eye]||{}; const c=ed.costs||{}; const na=!c.anest||c.anest==="";
-    const et=["gastos","anest","implantes","otrosAmt"].reduce((s,k)=>s+(parseFloat(c[k])||0),0);
+    const et=eyeTotal(c);
     const rl=RISK_LEVELS.find(x=>x.val===(ed.risk||"standard"))||RISK_LEVELS[0];
     const ep=document.createElement("div"); ep.style.cssText=`background:${C.cream};border-radius:10px;padding:12px 14px;border:1px solid ${eye==="OD"?C.tealPale:C.bluePale};`;
     ep.innerHTML=`<div style="font-size:0.68rem;font-weight:800;text-transform:uppercase;color:${eye==="OD"?C.teal:C.blue};margin-bottom:6px;">👁 ${eye} — ${eye==="OD"?"Ojo Derecho":"Ojo Izquierdo"}</div>`;
@@ -740,11 +803,30 @@ function buildDayCard(r,selDate,index){
       }
     }
     const costs=document.createElement("div"); costs.className="print-costs"; costs.style.cssText=`margin-top:10px;padding-top:8px;border-top:1px solid ${C.border};`;
-    [["Gastos",c.gastos],["Anestesiólogo",c.anest],["Implantes",c.implantes]].forEach(([lb,v])=>{
-      const row=document.createElement("div"); row.style.cssText="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:2px;";
-    row.innerHTML=`<span style="color:${lb==="Anestesiólogo"&&na?C.orange:C.stone};">${lb==="Anestesiólogo"&&na?"⚠️ ":""}${lb}</span><span style="font-weight:700;">${fmtCost(v)||"—"}</span>`; costs.appendChild(row);
-    });
-    const tot=document.createElement("div"); tot.style.cssText=`display:flex;justify-content:space-between;font-size:0.82rem;padding-top:5px;border-top:1px solid ${C.border};margin-top:3px;`; tot.innerHTML=`<span style="font-weight:800;">Total</span><span style="font-weight:800;color:${C.teal};">${fmtCost(et)||"—"}</span>`; costs.appendChild(tot); ep.appendChild(costs);
+    const isFacoCard=["Faco + LIO","Faco + LIO + Antiangio","Faco + Trabe","Faco + Vitre"].includes(ed.surgery);
+    const base=(parseFloat(c.gastos)||0)+(parseFloat(c.anest)||0)+(parseFloat(c.otrosAmt)||0);
+    if(isFacoCard){
+      // Base costs
+      [["Gastos",c.gastos],["Anestesiólogo",c.anest]].forEach(([lb,v])=>{
+        const row=document.createElement("div"); row.style.cssText="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:2px;";
+        row.innerHTML=`<span style="color:${lb==="Anestesiólogo"&&na?C.orange:C.stone};">${lb==="Anestesiólogo"&&na?"⚠️ ":""}${lb}</span><span style="font-weight:700;">${fmtCost(v)||"—"}</span>`; costs.appendChild(row);
+      });
+      // 3 LIO subtotals
+      const lioHdr=document.createElement("div"); lioHdr.style.cssText=`font-size:0.68rem;font-weight:800;text-transform:uppercase;color:${C.teal};margin:6px 0 4px;`; lioHdr.textContent="Presupuesto según LIO:"; costs.appendChild(lioHdr);
+      [["Monofocal",c.implantesMonofocal],["Tórico",c.implantesTorico],["Multifocal",c.implantesMultifocal]].forEach(([lb,v])=>{
+        if(!v||parseFloat(v)===0) return;
+        const tot2=base+(parseFloat(v)||0);
+        const row=document.createElement("div"); row.style.cssText=`display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;padding:4px 8px;background:${C.tealPale};border-radius:6px;`;
+        row.innerHTML=`<span style="font-weight:700;color:${C.teal};">Total ${lb}</span><span style="font-weight:800;color:${C.teal};">${fmtCost(tot2)||"—"}</span>`; costs.appendChild(row);
+      });
+    } else {
+      [["Gastos",c.gastos],["Anestesiólogo",c.anest],["Implantes",c.implantes]].forEach(([lb,v])=>{
+        const row=document.createElement("div"); row.style.cssText="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:2px;";
+        row.innerHTML=`<span style="color:${lb==="Anestesiólogo"&&na?C.orange:C.stone};">${lb==="Anestesiólogo"&&na?"⚠️ ":""}${lb}</span><span style="font-weight:700;">${fmtCost(v)||"—"}</span>`; costs.appendChild(row);
+      });
+      const tot=document.createElement("div"); tot.style.cssText=`display:flex;justify-content:space-between;font-size:0.82rem;padding-top:5px;border-top:1px solid ${C.border};margin-top:3px;`; tot.innerHTML=`<span style="font-weight:800;">Total</span><span style="font-weight:800;color:${C.teal};">${fmtCost(et)||"—"}</span>`; costs.appendChild(tot);
+    }
+    ep.appendChild(costs);
     eyeGrid.appendChild(ep);
   });
   card.appendChild(eyeGrid);
@@ -1057,7 +1139,7 @@ function render(){
 
   // Tabs
   const tabs=document.createElement("div"); tabs.className="app-tabs"; tabs.style.cssText=`display:flex;background:white;border-bottom:1px solid ${C.border};padding:0 14px;gap:2px;overflow-x:auto;`;
-  [["list","📋 Cotizaciones"],["day","🗓 Día"],["history","📂 Historial"],["settings","⚙️ Config"]].forEach(([k,l])=>{
+  [["list","📋 Cotizaciones"],["day","🗓 Día"],["history","📂 Historial"]].forEach(([k,l])=>{
     const tb=document.createElement("button"); tb.style.cssText=`padding:12px 14px;font-size:0.83rem;font-weight:${state.tab===k?800:500};color:${state.tab===k?C.teal:C.stone};background:none;border:none;border-bottom:3px solid ${state.tab===k?C.teal:"transparent"};cursor:pointer;white-space:nowrap;flex-shrink:0;`;
     tb.textContent=l; tb.addEventListener("click",()=>{state.tab=k;render();}); tabs.appendChild(tb);
   });
@@ -1144,7 +1226,7 @@ function render(){
         return(!q||r.name.toLowerCase().includes(q)||st.includes(q))&&(state.filter==="all"||r.status===state.filter||(state.filter==="noAnest"&&r.status!=="done"&&(r.activeEyes||[]).some(e=>!r.eyes?.[e]?.costs?.anest)));
       }).sort((a,b)=>{
         const bestDate=r=>(r.activeEyes||[]).map(e=>r.eyes?.[e]?.dateScheduled||r.eyes?.[e]?.dateTentative).filter(Boolean).sort()[0]||"";
-        const totalAmt=r=>(r.activeEyes||[]).reduce((s,eye2)=>{const c=r.eyes?.[eye2]?.costs||{};return s+["gastos","anest","implantes","otrosAmt"].reduce((ss,field)=>ss+(parseFloat(c[field])||0),0);},0);
+        const totalAmt=r=>(r.activeEyes||[]).reduce((s,eye2)=>{const c=r.eyes?.[eye2]?.costs||{};return s+eyeTotal(c);},0);
         let cmp=0;
         if(state.sortBy==="name") cmp=a.name.localeCompare(b.name,"es");
         else if(state.sortBy==="date"){const dA=a.createdAt||a.id||"";const dB=b.createdAt||b.id||"";cmp=dA.localeCompare(dB);}
@@ -1159,7 +1241,7 @@ function render(){
         const eyes=r.activeEyes||[];
         const best=eyes.map(e=>r.eyes?.[e]?.dateScheduled||r.eyes?.[e]?.dateTentative).filter(Boolean).sort()[0];
         const dias=dDiff(best);
-        const total=eyes.reduce((s,e)=>{const c=r.eyes?.[e]?.costs||{};return s+["gastos","anest","implantes","otrosAmt"].reduce((ss,k)=>ss+(parseFloat(c[k])||0),0);},0);
+        const total=eyes.reduce((s,e)=>{const c=r.eyes?.[e]?.costs||{};return s+eyeTotal(c);},0);
         const noA=eyes.some(e=>!r.eyes?.[e]?.costs?.anest||r.eyes?.[e]?.costs?.anest==="");
         const canSched=r.status!=="done";
 
@@ -1232,7 +1314,7 @@ function render(){
             const ed=r.eyes?.[eye]||{};
             const c=ed.costs||{};
             const rl=RISK_LEVELS.find(x=>x.val===(ed.risk||"standard"))||RISK_LEVELS[0];
-            const total=[c.gastos,c.anest,c.implantes,c.otrosAmt].reduce((s,v)=>s+(parseFloat(v)||0),0);
+            const total=eyeTotal(c);
             const fmt=v=>v&&parseFloat(v)>0?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(v):"—";
             eyeBlocks+=`<div style="margin-bottom:20px;border:1.5px solid #ddd;border-radius:10px;overflow:hidden;">
               <div style="background:#0D6B72;color:white;padding:10px 16px;font-weight:800;font-size:1rem;">
@@ -1253,9 +1335,23 @@ function render(){
                 <table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:0.88rem;">
                   <tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Gastos de quirófano</td><td style="text-align:right;font-weight:600;">${fmt(c.gastos)}</td></tr>
                   <tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Anestesiólogo</td><td style="text-align:right;font-weight:600;">${fmt(c.anest)}</td></tr>
-                  <tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Implantes / LIO</td><td style="text-align:right;font-weight:600;">${fmt(c.implantes)}</td></tr>
-                  ${c.otrosAmt&&parseFloat(c.otrosAmt)>0?`<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">${c.otrosDesc||"Otros"}</td><td style="text-align:right;font-weight:600;">${fmt(c.otrosAmt)}</td></tr>`:""}
-                  <tr><td style="padding:8px 0;font-weight:800;font-size:1rem;">TOTAL</td><td style="text-align:right;font-weight:800;font-size:1rem;color:#0D6B72;">${total>0?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(total):"—"}</td></tr>
+                  ${(()=>{
+                    const isFacoPrint=["Faco + LIO","Faco + LIO + Antiangio","Faco + Trabe","Faco + Vitre"].includes(ed.surgery);
+                    const basePrint=(parseFloat(c.gastos)||0)+(parseFloat(c.anest)||0)+(parseFloat(c.otrosAmt)||0);
+                    if(isFacoPrint){
+                      let rows=`<tr><td colspan="2" style="padding:6px 0 3px;font-size:0.78rem;font-weight:800;color:#0D6B72;text-transform:uppercase;">Presupuesto según lente intraocular:</td></tr>`;
+                      [["Monofocal",c.implantesMonofocal],["Tórico",c.implantesTorico],["Multifocal",c.implantesMultifocal]].forEach(([lb,v])=>{
+                        if(!v||parseFloat(v)===0) return;
+                        const t2=basePrint+(parseFloat(v)||0);
+                        rows+=`<tr style="border-bottom:1px solid #eee;background:#F0FAF9;"><td style="padding:6px 8px;font-weight:700;color:#0D6B72;">Total ${lb}</td><td style="text-align:right;font-weight:800;color:#0D6B72;padding:6px 0;">${new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(t2)}</td></tr>`;
+                      });
+                      return rows;
+                    } else {
+                      return `<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Implantes / LIO</td><td style="text-align:right;font-weight:600;">${fmt(c.implantes)}</td></tr>
+                      ${c.otrosAmt&&parseFloat(c.otrosAmt)>0?`<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">${c.otrosDesc||"Otros"}</td><td style="text-align:right;font-weight:600;">${fmt(c.otrosAmt)}</td></tr>`:""}
+                      <tr><td style="padding:8px 0;font-weight:800;font-size:1rem;">TOTAL</td><td style="text-align:right;font-weight:800;font-size:1rem;color:#0D6B72;">${total>0?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(total):"—"}</td></tr>`;
+                    }
+                  })()}
                 </table>
               </div>
             </div>`;
@@ -1314,47 +1410,11 @@ function render(){
 
   if(state.tab==="day") content.appendChild(buildDailyView());
   if(state.tab==="history") content.appendChild(buildHistoryView());
-  if(state.tab==="settings"){
-    const prices=JSON.parse(localStorage.getItem("coe-lio-prices")||"{}");
-    const sec=document.createElement("div"); sec.style.cssText="padding:16px;";
-
-    // LIO Prices section
-    const h2=document.createElement("div"); h2.style.cssText=`font-weight:800;font-size:1rem;color:${C.teal};margin-bottom:4px;`; h2.textContent="💲 Precios base de LIO (Implantes)";
-    const sub=document.createElement("div"); sub.style.cssText=`font-size:0.8rem;color:${C.stone};margin-bottom:16px;`; sub.textContent="Al seleccionar el tipo de LIO en un paciente, se autocompleta el campo Implantes si está vacío.";
-    sec.appendChild(h2); sec.appendChild(sub);
-
-    const grid=document.createElement("div"); grid.style.cssText="display:grid;gap:12px;max-width:400px;";
-    [["monofocal","Monofocal"],["torico","Tórico"],["multifocal","Multifocal"]].forEach(([k,label])=>{
-      const row=document.createElement("div"); row.style.cssText="display:flex;align-items:center;gap:10px;background:white;border-radius:10px;padding:12px 14px;border:1.5px solid "+C.border+";";
-      const lbl=document.createElement("div"); lbl.style.cssText="font-weight:700;font-size:0.9rem;flex:1;"; lbl.textContent=label;
-      const inp2=document.createElement("input"); inp2.type="number"; inp2.min="0"; inp2.placeholder="0.00";
-      inp2.value=prices[k]||"";
-      inp2.style.cssText=`width:130px;padding:8px 10px;border:1.5px solid ${C.border};border-radius:8px;font-size:0.95rem;font-weight:700;color:${C.ink};outline:none;text-align:right;`;
-      inp2.addEventListener("input",e=>{
-        const p=JSON.parse(localStorage.getItem("coe-lio-prices")||"{}");
-        p[k]=e.target.value;
-        localStorage.setItem("coe-lio-prices",JSON.stringify(p));
-      });
-      const prefix=document.createElement("span"); prefix.textContent="$"; prefix.style.cssText=`color:${C.stone};font-weight:700;`;
-      row.appendChild(lbl); row.appendChild(prefix); row.appendChild(inp2);
-      grid.appendChild(row);
-    });
-    sec.appendChild(grid);
-
-    // Info note
-    const note=document.createElement("div"); note.style.cssText=`margin-top:20px;padding:12px 14px;background:#E8F4F5;border-radius:10px;font-size:0.8rem;color:${C.teal};line-height:1.6;max-width:400px;`;
-    note.innerHTML="<strong>¿Cómo funciona?</strong><br>Al capturar un paciente y seleccionar el tipo de LIO, el campo <em>Implantes</em> se llena automáticamente con el precio base configurado aquí. Puedes modificarlo por paciente si el precio varía.";
-    sec.appendChild(note);
-
-    content.appendChild(sec);
-  }
-
   app.appendChild(content);
   if(state.modal) app.appendChild(buildModalDOM());
   if(state.schedModal) app.appendChild(buildSchedModal());
 }
 
-// ── SETTINGS VIEW ─────────────────────────────────────────────
 // ── WEEKLY BACKUP ─────────────────────────────────────────────
 function weeklyBackup(force){
   const KEY="oftalmo-last-backup";
@@ -1374,7 +1434,7 @@ function weeklyBackup(force){
     (r.activeEyes||[]).forEach(eye=>{
       const e=r.eyes?.[eye]||{};
       const c=e.costs||{};
-      const total=[c.gastos,c.anest,c.implantes,c.otrosAmt].reduce((s,v)=>s+(parseFloat(v)||0),0);
+      const total=eyeTotal(c);
       rows.push([
         r.name, r.tel1||"", r.tel2||"",
         eye==="OD"?"Ojo Derecho":"Ojo Izquierdo",
