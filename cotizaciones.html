@@ -108,7 +108,7 @@ async function sbDelete(id){
 }
 
 // ── STATE ────────────────────────────────────────────────────
-let state={tab:"list",records:[],filter:"all",search:"",modal:null,form:mkForm(),errors:{},modalEyeTab:"OD",schedModal:null,expandedDays:{},customSurgeries:[],sortBy:"date",sortDir:"desc",syncing:false,syncError:false};
+let state={tab:"list",records:[],filter:"all",search:"",modal:null,form:mkForm(),errors:{},modalEyeTab:"OD",schedModal:null,expandedDays:{},customSurgeries:[],sortBy:"date",sortDir:"desc",syncing:false,syncError:false,_awaitingBothConfirm:false,_bothConfirmed:false};
 
 function getAllSurgeries(){return [...Object.values(SURGERY_DB).flat(),...state.customSurgeries];}
 
@@ -325,15 +325,23 @@ function makeSurgeryPicker(val,onchange,placeholder){
 }
 
 // ── EYE PANEL (risk per eye) ──────────────────────────────────
-function makeEyePanel(eyeData,onchange,surgErr){
+function makeEyePanel(eyeData,onchange,surgErr,parentActiveEyes,costOnly){
   const wrap=document.createElement("div");
   Object.assign(wrap.style,{background:C.cream,borderRadius:"12px",padding:"14px",border:`1.5px solid ${C.border}`});
   let data={...eyeData};
   const update=(k,v)=>{data={...data,[k]:v};onchange(data);};
   const updateCost=(k,v)=>{data={...data,costs:{...data.costs,[k]:v}};onchange(data);};
 
-  // Risk per eye
-  const riskSec=makeSec("⚠️ Riesgo Quirúrgico"); wrap.appendChild(riskSec);
+  const hideCosts=!!data._hideCosts;
+  const sharedBoth=!!data._sharedBothEyes;
+
+  if(costOnly){
+    // Only show cost section — skip risk/surgery/LIO/dates
+    wrap.style.background="white";
+    wrap.style.border=`1.5px solid ${C.teal}33`;
+  } else {
+    // Risk per eye
+    const riskSec=makeSec("⚠️ Riesgo Quirúrgico"); wrap.appendChild(riskSec);
   const riskGrid=document.createElement("div"); riskGrid.style.cssText="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;";
   function renderRisk(){
     riskGrid.innerHTML="";
@@ -462,33 +470,15 @@ function makeEyePanel(eyeData,onchange,surgErr){
   dateGrid.appendChild(fldWrap("Fecha programada",schedInp));
   dateGrid.appendChild(fldWrap("Hora cirugía",timeInpMain));
   wrap.appendChild(dateGrid);
+  } // end if(!costOnly)
 
-  // Costs — wrapped in rebuildCosts so it re-renders when surgery changes
+  // Costs
+  if(!hideCosts){
   const costSec=document.createElement("div"); costSec.style.cssText=`padding-top:12px;border-top:1px solid ${C.border};`;
   const costTitleRow=document.createElement("div"); costTitleRow.style.cssText="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;";
-  const costTitle=document.createElement("div"); costTitle.style.cssText=`font-size:0.66rem;font-weight:800;text-transform:uppercase;color:${C.stone};`; costTitle.textContent="💰 Cotización";
-
-  // Shared gastos toggle (only show when both eyes active)
-  const isBothEyes=(data._parentActiveEyes||[]).length===2;
-  const sharedWrap=document.createElement("div"); sharedWrap.style.cssText="display:flex;align-items:center;gap:6px;";
-  if(isBothEyes){
-    const sharedCb=document.createElement("input"); sharedCb.type="checkbox"; sharedCb.id="shared-gastos-"+data._eye;
-    sharedCb.checked=!!data.costs?.gastosAmbosOjos;
-    sharedCb.style.cssText="width:16px;height:16px;cursor:pointer;accent-color:#0D6B72;";
-    const sharedLbl=document.createElement("label"); sharedLbl.htmlFor="shared-gastos-"+data._eye;
-    sharedLbl.style.cssText=`font-size:0.72rem;font-weight:700;color:${C.teal};cursor:pointer;`;
-    sharedLbl.textContent="Gastos = Ambos ojos";
-    sharedCb.addEventListener("change",e=>{
-      if(e.target.checked){
-        if(!confirm("⚠️ ¿El costo de Gastos es por AMBOS ojos juntos?\n\nEsto se indicará en la cotización impresa."))
-          {sharedCb.checked=false;return;}
-      }
-      update("costs",{...data.costs,gastosAmbosOjos:e.target.checked});
-      buildCostTable();
-    });
-    sharedWrap.appendChild(sharedCb); sharedWrap.appendChild(sharedLbl);
-  }
-  costTitleRow.appendChild(costTitle); costTitleRow.appendChild(sharedWrap); costSec.appendChild(costTitleRow);
+  const costTitleText=sharedBoth?"💰 Cotización — 👁👁 Ambos Ojos":"💰 Cotización";
+  const costTitle=document.createElement("div"); costTitle.style.cssText=`font-size:0.66rem;font-weight:800;text-transform:uppercase;color:${sharedBoth?C.teal:C.stone};`; costTitle.textContent=costTitleText;
+  costTitleRow.appendChild(costTitle); costSec.appendChild(costTitleRow);
   let costTable=document.createElement("div");
 
   function buildCostTable(){
@@ -564,6 +554,14 @@ function makeEyePanel(eyeData,onchange,surgErr){
 
   buildCostTable();
   costSec.appendChild(costTable); wrap.appendChild(costSec);
+
+  // If sharedBoth, show confirmation notice
+  if(sharedBoth){
+    const bothNote=document.createElement("div"); bothNote.style.cssText=`margin-top:8px;padding:8px 12px;background:#FDF4E3;border:1.5px solid #E8C97A;border-radius:8px;font-size:0.78rem;color:#B07D2A;font-weight:700;`;
+    bothNote.innerHTML="⚠️ Este costo aplica para <strong>ambos ojos</strong> y así aparecerá en la cotización impresa.";
+    wrap.appendChild(bothNote);
+  }
+  } // end if(!hideCosts)
   return wrap;
 }
 
@@ -636,14 +634,20 @@ function openModal(id){
   state.modalEyeTab=(state.form.activeEyes||[])[0]||"OD";
   render();
 }
-function closeModal(){state.modal=null;render();}
-function hasCostZero(eyeData){
+function closeModal(){state.modal=null;state._awaitingBothConfirm=false;state._bothConfirmed=false;render();}
+function hasCostZero(eyeData, allEyesData){
   const c=eyeData?.costs;
   if(!c) return true;
-  // Has cost if gastos OR any LIO price is filled
+  // Pass if this eye has gastos OR any LIO price
   const hasFaco=(parseFloat(c.implantesMonofocal)||0)+(parseFloat(c.implantesTorico)||0)+(parseFloat(c.implantesMultifocal)||0)>0;
   const hasGastos=parseFloat(c.gastos)>0;
-  return !hasGastos&&!hasFaco;
+  if(hasGastos||hasFaco) return false;
+  // Also pass if ANY eye in the record has gastosAmbosOjos checked
+  if(allEyesData){
+    const anyShared=Object.values(allEyesData).some(e=>e?.costs?.gastosAmbosOjos&&parseFloat(e?.costs?.gastos)>0);
+    if(anyShared) return false;
+  }
+  return true;
 }
 function eyeTotal(c){
   const base=(parseFloat(c?.gastos)||0)+(parseFloat(c?.anest)||0)+(parseFloat(c?.otrosAmt)||0)+(parseFloat(c?.implantes)||0);
@@ -657,13 +661,30 @@ function validateForm(){
   if(!f.name.trim())e.name="Nombre obligatorio";
   if(!f.tel1.trim())e.tel1="Teléfono 1 obligatorio";
   if(!(f.activeEyes||[]).length)e.activeEyes="Selecciona al menos un ojo";
-  (f.activeEyes||[]).forEach(eye=>{
-    if(!f.eyes?.[eye]?.surgery)e[eye+"_s"]="Procedimiento "+eye+" obligatorio";
-  });
+  const isBothVal=(f.activeEyes||[]).length===2;
+  if(isBothVal){
+    // Only require OD surgery when both eyes active — OI mirrors OD
+    if(!f.eyes?.["OD"]?.surgery)e["OD_s"]="Procedimiento OD obligatorio";
+  } else {
+    (f.activeEyes||[]).forEach(eye=>{
+      if(!f.eyes?.[eye]?.surgery)e[eye+"_s"]="Procedimiento "+eye+" obligatorio";
+    });
+  }
   return e;
 }
 function saveRecord(){
   const e=validateForm(); if(Object.keys(e).length){state.errors=e;render();return;}
+  const isBoth=(state.form.activeEyes||[]).length===2;
+  if(isBoth){
+    if(!confirm("⚠️ Ambos ojos activos\n\n¿El costo capturado aplica para AMBOS ojos (OD + OI) en una sola cotización?\n\nSe indicará 'Ambos ojos' en la hoja impresa.")) return;
+    const sharedCosts={...state.form.eyes["OD"].costs, gastosAmbosOjos:true};
+    state.form.eyes["OD"]={...state.form.eyes["OD"], costs:sharedCosts};
+    // Mirror OI surgery from OD if OI has none
+    if(!state.form.eyes["OI"]?.surgery){
+      state.form.eyes["OI"]={...state.form.eyes["OD"]};
+    }
+    state.form.eyes["OI"]={...state.form.eyes["OI"], costs:{...sharedCosts}};
+  }
   const rec={...state.form,id:state.modal==="new"?uid():state.modal,createdAt:state.modal==="new"?new Date().toISOString():(state.records.find(r=>r.id===state.modal)?.createdAt||new Date().toISOString())};
   const next=state.modal==="new"?[rec,...state.records]:state.records.map(r=>r.id===state.modal?rec:r);
   saveRecords(next); closeModal();
@@ -727,25 +748,28 @@ function buildModalDOM(){
   }
   if((state.form.activeEyes||[]).length>0){
     const eyes=state.form.activeEyes||[];
-    if(eyes.length>1){
-      const tabRow=document.createElement("div"); tabRow.style.cssText=`display:flex;gap:2px;margin-bottom:10px;border-bottom:2px solid ${C.border};`;
-      eyes.forEach(eye=>{
-        const active=state.modalEyeTab===eye;
-        const tb=document.createElement("button"); tb.style.cssText=`padding:8px 16px;font-size:0.83rem;font-weight:${active?800:500};color:${active?(eye==="OD"?C.teal:C.blue):C.stone};background:none;border:none;border-bottom:3px solid ${active?(eye==="OD"?C.teal:C.blue):"transparent"};cursor:pointer;`;
-        tb.textContent=`👁 ${eye} ${eye==="OD"?"(Derecho)":"(Izquierdo)"}`;
-        tb.addEventListener("click",()=>{state.modalEyeTab=eye;render();});
-        tabRow.appendChild(tb);
-      });
-      secEyes.appendChild(tabRow);
-      const ae=state.modalEyeTab;
-      const eyeData=state.form.eyes[ae]||mkEye();
-      eyeData._eye=ae; eyeData._parentActiveEyes=state.form.activeEyes;
-      secEyes.appendChild(makeEyePanel(eyeData,d=>{state.form.eyes[ae]=d;},state.errors[ae+"_s"]));
+    const isBoth=eyes.length>1;
+    if(isBoth){
+      // Single panel — same surgery and cost for both eyes
+      const bothBanner=document.createElement("div"); bothBanner.style.cssText=`display:flex;align-items:center;gap:8px;padding:9px 13px;background:${C.tealPale};border:1.5px solid ${C.teal}44;border-radius:10px;margin-bottom:12px;font-size:0.82rem;color:${C.teal};font-weight:700;`;
+      bothBanner.innerHTML=`👁👁 <span>Ambos ojos — mismo procedimiento y mismo costo</span>`;
+      secEyes.appendChild(bothBanner);
+
+      // Use OD as the single data source
+      const sharedData=state.form.eyes["OD"]||mkEye();
+      sharedData._eye="OD"; sharedData._parentActiveEyes=eyes; sharedData._sharedBothEyes=true;
+      secEyes.appendChild(makeEyePanel(sharedData, d=>{
+        // Mirror everything to both eyes
+        const withFlag={...d, costs:{...d.costs, gastosAmbosOjos:true}};
+        state.form.eyes["OD"]=withFlag;
+        state.form.eyes["OI"]={...withFlag};
+      }, state.errors["OD_s"], eyes));
+
     } else {
       const eye=eyes[0];
       const eyeData1=state.form.eyes[eye]||mkEye();
       eyeData1._eye=eye; eyeData1._parentActiveEyes=state.form.activeEyes;
-      secEyes.appendChild(makeEyePanel(eyeData1,d=>{state.form.eyes[eye]=d;},state.errors[eye+"_s"]));
+      secEyes.appendChild(makeEyePanel(eyeData1,d=>{state.form.eyes[eye]=d;},state.errors[eye+"_s"],state.form.activeEyes));
     }
   }
 
@@ -759,10 +783,24 @@ function buildModalDOM(){
   ta.addEventListener("input",e=>state.form.notes=e.target.value);
   secNot.appendChild(ta); box.appendChild(body);
 
-  const mFoot=document.createElement("div"); mFoot.style.cssText=`padding:11px 18px 16px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid ${C.border};`;
+  const mFoot=document.createElement("div"); mFoot.style.cssText=`padding:11px 18px 16px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid ${C.border};flex-wrap:wrap;`;
   if(state.modal!=="new")mFoot.appendChild(btn("🗑 Eliminar",deleteRecord,"danger"));
   mFoot.appendChild(btn("Cancelar",closeModal,"outline"));
-  mFoot.appendChild(btn("Guardar",saveRecord,"primary"));
+
+  if(state._awaitingBothConfirm){
+    // Show inline confirmation instead of confirm()
+    const confirmBox=document.createElement("div"); confirmBox.style.cssText=`width:100%;order:-1;background:#FDF4E3;border:1.5px solid #E8C97A;border-radius:10px;padding:12px 14px;margin-bottom:8px;`;
+    confirmBox.innerHTML=`<div style="font-weight:800;font-size:0.88rem;color:#B07D2A;margin-bottom:8px;">⚠️ Ambos ojos activos — ¿confirmar cotización?</div>
+      <div style="font-size:0.8rem;color:#7A5A1A;margin-bottom:10px;">El costo capturado aplica para <strong>OD y OI juntos</strong>. Esto quedará indicado en la hoja impresa.</div>`;
+    const btnRow=document.createElement("div"); btnRow.style.cssText="display:flex;gap:8px;";
+    const confirmYes=btn("✅ Sí, guardar para ambos ojos",()=>{state._bothConfirmed=true;saveRecord();},"primary",{fontSize:"0.82rem",padding:"9px 14px"});
+    const confirmNo=btn("✕ Cancelar",()=>{state._awaitingBothConfirm=false;render();},"outline",{fontSize:"0.82rem",padding:"9px 14px"});
+    btnRow.appendChild(confirmNo); btnRow.appendChild(confirmYes);
+    confirmBox.appendChild(btnRow); mFoot.appendChild(confirmBox);
+  } else {
+    mFoot.appendChild(btn("Guardar",saveRecord,"primary"));
+  }
+
   box.appendChild(mFoot); overlay.appendChild(box);
   return overlay;
 }
@@ -871,9 +909,10 @@ function buildDayCard(r,selDate,index){
 function buildDailyView(){
   const wrap=document.createElement("div");
   let selDate=toStr();
+  let viewMonth=selDate.substring(0,7); // "YYYY-MM"
 
   function buildCalendar(){
-    const[sy,sm]=selDate.split("-").map(Number);
+    const[sy,sm]=viewMonth.split("-").map(Number);
     const cal=document.createElement("div"); cal.style.cssText=`background:white;border-radius:14px;border:1px solid ${C.border};padding:12px;margin-bottom:14px;`;
 
     // Header: prev / month-year / next
@@ -886,12 +925,12 @@ function buildDailyView(){
 
     prevBtn.addEventListener("click",()=>{
       let nm=sm-1,ny=sy; if(nm<1){nm=12;ny--;}
-      const d=new Date(ny,nm-1,1); selDate=`${ny}-${String(nm).padStart(2,"0")}-01`;
+      viewMonth=`${ny}-${String(nm).padStart(2,"0")}`;
       renderDay();
     });
     nextBtn.addEventListener("click",()=>{
       let nm=sm+1,ny=sy; if(nm>12){nm=1;ny++;}
-      selDate=`${ny}-${String(nm).padStart(2,"0")}-01`;
+      viewMonth=`${ny}-${String(nm).padStart(2,"0")}`;
       renderDay();
     });
     cal.appendChild(hdr);
@@ -903,10 +942,9 @@ function buildDailyView(){
       const cell=document.createElement("div"); cell.style.cssText=`text-align:center;font-size:0.65rem;font-weight:800;color:${C.stone};padding:3px 0;`; cell.textContent=d; grid.appendChild(cell);
     });
 
-    // Get all scheduled dates this month
-    const live=applyAuto(state.records);
+    // Get ALL scheduled dates (regardless of cost) for dots
     const scheduledDates=new Set();
-    live.forEach(r=>(r.activeEyes||[]).forEach(eye=>{
+    state.records.forEach(r=>(r.activeEyes||[]).forEach(eye=>{
       const d=r.eyes?.[eye]?.dateScheduled;
       if(d) scheduledDates.add(d);
     }));
@@ -932,7 +970,7 @@ function buildDailyView(){
         const dot=document.createElement("div"); dot.style.cssText=`width:5px;height:5px;border-radius:50%;background:${isSelected?"white":C.orange};margin:2px auto 0;`;
         cell.appendChild(dot);
       }
-      cell.addEventListener("click",()=>{selDate=dateStr;renderDay();});
+      cell.addEventListener("click",()=>{selDate=dateStr;viewMonth=dateStr.substring(0,7);renderDay();});
       grid.appendChild(cell);
     }
     cal.appendChild(grid);
@@ -952,7 +990,7 @@ function buildDailyView(){
       const pdays=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
       const pdt=new Date(parseInt(py),parseInt(pm)-1,parseInt(pd));
       const live2=applyAuto(state.records);
-      const pts2=live2.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye])));
+      const pts2=live2.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye], r.eyes)));
       if(!pts2.length){alert("Sin pacientes programados para este día.");return;}
 
       function cardHTML(r,i){
@@ -1023,7 +1061,7 @@ function buildDailyView(){
     const titleD=document.createElement("div"); titleD.style.cssText=`font-weight:700;color:${C.teal};margin-top:4px;`; titleD.textContent=`Programación Quirúrgica — ${days[dt.getDay()]}, ${fmtDL(selDate)}`;
     header.appendChild(titleD);
     const live=applyAuto(state.records);
-    const pts=live.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye]))).sort((a,b)=>{
+    const pts=live.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye], r.eyes))).sort((a,b)=>{
       const tA=(a.activeEyes||[]).map(e=>a.eyes?.[e]?.timeScheduled).filter(Boolean)[0]||"99:99";
       const tB=(b.activeEyes||[]).map(e=>b.eyes?.[e]?.timeScheduled).filter(Boolean)[0]||"99:99";
       return tA.localeCompare(tB);
@@ -1078,7 +1116,7 @@ function buildHistoryView(){
   live.forEach(r=>{
     (r.activeEyes||[]).forEach(eye=>{
       const d=r.eyes?.[eye]?.dateScheduled;
-      if(d&&d<=toStr()&&!hasCostZero(r.eyes?.[eye])){
+      if(d&&d<=toStr()&&!hasCostZero(r.eyes?.[eye], r.eyes)){
         if(!dayMap[d])dayMap[d]=[];
         dayMap[d].push({r,eye});
       }
