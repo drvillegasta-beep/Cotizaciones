@@ -189,7 +189,12 @@ function migrateRecord(r){
   ["OD","OI"].forEach(eye=>{
     const e=r.eyes?.[eye]||mkEye();
     if(!e.risk) e.risk = r.risk||"standard";
-    eyes[eye]={...mkEye(),...e,costs:{...mkEye().costs,...(e.costs||{})},surgeryPlus:[...(e.surgeryPlus||[])],lioCyl:e.lioCyl||"",lioAxis:e.lioAxis||"",lioAdd:e.lioAdd||""};
+    let costs={...mkEye().costs,...(e.costs||{})};
+    // Clean residual 0.00 values that cause wrong totals
+    ["implantes","implantesMonofocal","implantesTorico","implantesMultifocal","anest","otrosAmt"].forEach(k=>{
+      if(costs[k]!==undefined&&costs[k]!==null&&costs[k]!==""&&parseFloat(costs[k])===0) costs[k]="";
+    });
+    eyes[eye]={...mkEye(),...e,costs,surgeryPlus:[...(e.surgeryPlus||[])],lioCyl:e.lioCyl||"",lioAxis:e.lioAxis||"",lioAdd:e.lioAdd||""};
   });
   return {...mkForm(),...r,eyes};
 }
@@ -650,17 +655,32 @@ function hasCostZero(eyeData, allEyesData){
   return true;
 }
 function eyeTotal(c){
-  const base=(parseFloat(c?.gastos)||0)+(parseFloat(c?.anest)||0)+(parseFloat(c?.otrosAmt)||0)+(parseFloat(c?.implantes)||0);
   const lioVals=["implantesMonofocal","implantesTorico","implantesMultifocal"].map(k=>parseFloat(c?.[k])||0).filter(v=>v>0);
-  const lioExtra=lioVals.length>0?Math.max(...lioVals):0;
+  const hasFaco=lioVals.length>0;
+  // If faco LIO fields exist, ignore legacy implantes field to avoid double counting
+  const implantesVal=hasFaco?0:(parseFloat(c?.implantes)||0);
+  const base=(parseFloat(c?.gastos)||0)+(parseFloat(c?.anest)||0)+(parseFloat(c?.otrosAmt)||0)+implantesVal;
+  const lioExtra=hasFaco?Math.max(...lioVals):0;
   return base+lioExtra;
 }
 function recordTotal(r){
   const eyes=r.activeEyes||[];
-  // If both eyes share costs, count only once (OD costs)
+  // If both eyes share costs, count only once using OD costs
   const isAmbos=eyes.length===2&&eyes.some(eye=>r.eyes?.[eye]?.costs?.gastosAmbosOjos);
-  if(isAmbos) return eyeTotal(r.eyes?.["OD"]?.costs||{});
-  return eyes.reduce((s,eye)=>s+eyeTotal(r.eyes?.[eye]?.costs||{}),0);
+  if(isAmbos){
+    const c=r.eyes?.["OD"]?.costs||{};
+    const base=(parseFloat(c.gastos)||0)+(parseFloat(c.anest)||0)+(parseFloat(c.otrosAmt)||0);
+    const lioVals=["implantesMonofocal","implantesTorico","implantesMultifocal"].map(k=>parseFloat(c[k])||0).filter(v=>v>0);
+    const implVal=lioVals.length>0?Math.max(...lioVals):(parseFloat(c.implantes)||0);
+    return base+implVal;
+  }
+  return eyes.reduce((s,eye)=>{
+    const c=r.eyes?.[eye]?.costs||{};
+    const base=(parseFloat(c.gastos)||0)+(parseFloat(c.anest)||0)+(parseFloat(c.otrosAmt)||0);
+    const lioVals=["implantesMonofocal","implantesTorico","implantesMultifocal"].map(k=>parseFloat(c[k])||0).filter(v=>v>0);
+    const implVal=lioVals.length>0?Math.max(...lioVals):(parseFloat(c.implantes)||0);
+    return s+base+implVal;
+  },0);
 }
 function validateForm(){
   const e={},f=state.form;
@@ -681,15 +701,26 @@ function validateForm(){
 function saveRecord(){
   const e=validateForm(); if(Object.keys(e).length){state.errors=e;render();return;}
   const isBoth=(state.form.activeEyes||[]).length===2;
+  const alreadyAmbos=isBoth&&(state.form.eyes?.["OD"]?.costs?.gastosAmbosOjos||state.form.eyes?.["OI"]?.costs?.gastosAmbosOjos);
+  if(isBoth && !state._bothConfirmed && !alreadyAmbos){
+    state._awaitingBothConfirm=true; render(); return;
+  }
+  state._bothConfirmed=false; state._awaitingBothConfirm=false;
   if(isBoth){
-    if(!confirm("⚠️ Ambos ojos activos\n\n¿El costo capturado aplica para AMBOS ojos (OD + OI) en una sola cotización?\n\nSe indicará 'Ambos ojos' en la hoja impresa.")) return;
-    const sharedCosts={...state.form.eyes["OD"].costs, gastosAmbosOjos:true};
-    state.form.eyes["OD"]={...state.form.eyes["OD"], costs:sharedCosts};
-    // Mirror OI surgery from OD if OI has none
-    if(!state.form.eyes["OI"]?.surgery){
-      state.form.eyes["OI"]={...state.form.eyes["OD"]};
-    }
-    state.form.eyes["OI"]={...state.form.eyes["OI"], costs:{...sharedCosts}};
+    const raw=state.form.eyes["OD"].costs||{};
+    const cleanCosts={
+      gastos:raw.gastos&&parseFloat(raw.gastos)>0?raw.gastos:"",
+      anest:raw.anest&&parseFloat(raw.anest)>0?raw.anest:"",
+      implantes:"",
+      implantesMonofocal:raw.implantesMonofocal&&parseFloat(raw.implantesMonofocal)>0?raw.implantesMonofocal:"",
+      implantesTorico:raw.implantesTorico&&parseFloat(raw.implantesTorico)>0?raw.implantesTorico:"",
+      implantesMultifocal:raw.implantesMultifocal&&parseFloat(raw.implantesMultifocal)>0?raw.implantesMultifocal:"",
+      otrosAmt:raw.otrosAmt&&parseFloat(raw.otrosAmt)>0?raw.otrosAmt:"",
+      otrosDesc:raw.otrosDesc||"",
+      gastosAmbosOjos:true
+    };
+    state.form.eyes["OD"]={...state.form.eyes["OD"], costs:cleanCosts};
+    state.form.eyes["OI"]={...state.form.eyes["OI"], costs:{...cleanCosts}};
   }
   const rec={...state.form,id:state.modal==="new"?uid():state.modal,createdAt:state.modal==="new"?new Date().toISOString():(state.records.find(r=>r.id===state.modal)?.createdAt||new Date().toISOString())};
   const next=state.modal==="new"?[rec,...state.records]:state.records.map(r=>r.id===state.modal?rec:r);
