@@ -665,10 +665,14 @@ function eyeTotal(c){
 }
 function recordTotal(r){
   const eyes=r.activeEyes||[];
-  // If both eyes share costs, count only once using OD costs
-  const isAmbos=eyes.length===2&&eyes.some(eye=>r.eyes?.[eye]?.costs?.gastosAmbosOjos);
+  // Check gastosAmbosOjos in either eye (handle boolean or string)
+  const hasAmbos=eye=>!!(r.eyes?.[eye]?.costs?.gastosAmbosOjos===true||r.eyes?.[eye]?.costs?.gastosAmbosOjos==="true");
+  const isAmbos=eyes.length===2&&(hasAmbos("OD")||hasAmbos("OI"));
   if(isAmbos){
-    const c=r.eyes?.["OD"]?.costs||{};
+    // Use whichever eye has actual gastos value
+    const cOD=r.eyes?.["OD"]?.costs||{};
+    const cOI=r.eyes?.["OI"]?.costs||{};
+    const c=parseFloat(cOD.gastos)>0?cOD:cOI;
     const base=(parseFloat(c.gastos)||0)+(parseFloat(c.anest)||0)+(parseFloat(c.otrosAmt)||0);
     const lioVals=["implantesMonofocal","implantesTorico","implantesMultifocal"].map(k=>parseFloat(c[k])||0).filter(v=>v>0);
     const implVal=lioVals.length>0?Math.max(...lioVals):(parseFloat(c.implantes)||0);
