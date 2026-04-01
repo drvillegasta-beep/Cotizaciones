@@ -108,7 +108,7 @@ async function sbDelete(id){
 }
 
 // ── STATE ────────────────────────────────────────────────────
-let state={tab:"list",records:[],filter:"all",search:"",modal:null,form:mkForm(),errors:{},modalEyeTab:"OD",schedModal:null,expandedDays:{},customSurgeries:[],sortBy:"name",sortDir:"asc",syncing:false,syncError:false};
+let state={tab:"list",records:[],filter:"all",search:"",modal:null,form:mkForm(),errors:{},modalEyeTab:"OD",schedModal:null,expandedDays:{},customSurgeries:[],sortBy:"date",sortDir:"desc",syncing:false,syncError:false};
 
 function getAllSurgeries(){return [...Object.values(SURGERY_DB).flat(),...state.customSurgeries];}
 
@@ -451,17 +451,44 @@ function makeEyePanel(eyeData,onchange,surgErr){
   renderLio(); lioSec.appendChild(lioFields); wrap.appendChild(lioSec);
 
   // Dates
-  const dateGrid=document.createElement("div"); dateGrid.style.cssText=`display:grid;grid-template-columns:1fr 1fr;gap:10px;padding-top:12px;border-top:1px solid ${C.border};margin-bottom:14px;`;
+  const dateGrid=document.createElement("div"); dateGrid.style.cssText=`display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding-top:12px;border-top:1px solid ${C.border};margin-bottom:14px;`;
   const tentInp=inp(data.dateTentative,v=>update("dateTentative",v),"","date");
   const schedInp=inp(data.dateScheduled,v=>{update("dateScheduled",v);schedInp.style.borderColor=v?C.teal:C.border;},"","date");
   schedInp.style.borderColor=data.dateScheduled?C.teal:C.border;
+  const timeInpMain=document.createElement("input"); timeInpMain.type="time"; timeInpMain.value=data.timeScheduled||"";
+  timeInpMain.style.cssText=`width:100%;padding:11px 10px;border:1.5px solid ${C.border};border-radius:9px;font-size:16px;color:${C.ink};outline:none;font-weight:700;background:white;box-sizing:border-box;`;
+  timeInpMain.addEventListener("change",e=>update("timeScheduled",e.target.value));
   dateGrid.appendChild(fldWrap("Fecha tentativa",tentInp));
   dateGrid.appendChild(fldWrap("Fecha programada",schedInp));
+  dateGrid.appendChild(fldWrap("Hora cirugía",timeInpMain));
   wrap.appendChild(dateGrid);
 
   // Costs — wrapped in rebuildCosts so it re-renders when surgery changes
   const costSec=document.createElement("div"); costSec.style.cssText=`padding-top:12px;border-top:1px solid ${C.border};`;
-  const costTitle=document.createElement("div"); costTitle.style.cssText=`font-size:0.66rem;font-weight:800;text-transform:uppercase;color:${C.stone};margin-bottom:7px;`; costTitle.textContent="💰 Cotización"; costSec.appendChild(costTitle);
+  const costTitleRow=document.createElement("div"); costTitleRow.style.cssText="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;";
+  const costTitle=document.createElement("div"); costTitle.style.cssText=`font-size:0.66rem;font-weight:800;text-transform:uppercase;color:${C.stone};`; costTitle.textContent="💰 Cotización";
+
+  // Shared gastos toggle (only show when both eyes active)
+  const isBothEyes=(data._parentActiveEyes||[]).length===2;
+  const sharedWrap=document.createElement("div"); sharedWrap.style.cssText="display:flex;align-items:center;gap:6px;";
+  if(isBothEyes){
+    const sharedCb=document.createElement("input"); sharedCb.type="checkbox"; sharedCb.id="shared-gastos-"+data._eye;
+    sharedCb.checked=!!data.costs?.gastosAmbosOjos;
+    sharedCb.style.cssText="width:16px;height:16px;cursor:pointer;accent-color:#0D6B72;";
+    const sharedLbl=document.createElement("label"); sharedLbl.htmlFor="shared-gastos-"+data._eye;
+    sharedLbl.style.cssText=`font-size:0.72rem;font-weight:700;color:${C.teal};cursor:pointer;`;
+    sharedLbl.textContent="Gastos = Ambos ojos";
+    sharedCb.addEventListener("change",e=>{
+      if(e.target.checked){
+        if(!confirm("⚠️ ¿El costo de Gastos es por AMBOS ojos juntos?\n\nEsto se indicará en la cotización impresa."))
+          {sharedCb.checked=false;return;}
+      }
+      update("costs",{...data.costs,gastosAmbosOjos:e.target.checked});
+      buildCostTable();
+    });
+    sharedWrap.appendChild(sharedCb); sharedWrap.appendChild(sharedLbl);
+  }
+  costTitleRow.appendChild(costTitle); costTitleRow.appendChild(sharedWrap); costSec.appendChild(costTitleRow);
   let costTable=document.createElement("div");
 
   function buildCostTable(){
@@ -611,8 +638,12 @@ function openModal(id){
 }
 function closeModal(){state.modal=null;render();}
 function hasCostZero(eyeData){
-  const v=eyeData?.costs?.gastos;
-  return v===""||v==null||isNaN(v)||parseFloat(v)===0;
+  const c=eyeData?.costs;
+  if(!c) return true;
+  // Has cost if gastos OR any LIO price is filled
+  const hasFaco=(parseFloat(c.implantesMonofocal)||0)+(parseFloat(c.implantesTorico)||0)+(parseFloat(c.implantesMultifocal)||0)>0;
+  const hasGastos=parseFloat(c.gastos)>0;
+  return !hasGastos&&!hasFaco;
 }
 function eyeTotal(c){
   const base=(parseFloat(c?.gastos)||0)+(parseFloat(c?.anest)||0)+(parseFloat(c?.otrosAmt)||0)+(parseFloat(c?.implantes)||0);
@@ -625,11 +656,9 @@ function validateForm(){
   const e={},f=state.form;
   if(!f.name.trim())e.name="Nombre obligatorio";
   if(!f.tel1.trim())e.tel1="Teléfono 1 obligatorio";
-  if(!f.tel2.trim())e.tel2="Teléfono 2 obligatorio";
   if(!(f.activeEyes||[]).length)e.activeEyes="Selecciona al menos un ojo";
   (f.activeEyes||[]).forEach(eye=>{
     if(!f.eyes?.[eye]?.surgery)e[eye+"_s"]="Procedimiento "+eye+" obligatorio";
-    if(hasCostZero(f.eyes?.[eye]))e[eye+"_cost"]="Ojo "+eye+": El campo Gastos es obligatorio y debe ser mayor a $0";
   });
   return e;
 }
@@ -709,10 +738,14 @@ function buildModalDOM(){
       });
       secEyes.appendChild(tabRow);
       const ae=state.modalEyeTab;
-      secEyes.appendChild(makeEyePanel(state.form.eyes[ae]||mkEye(),d=>{state.form.eyes[ae]=d;},state.errors[ae+"_s"]));
+      const eyeData=state.form.eyes[ae]||mkEye();
+      eyeData._eye=ae; eyeData._parentActiveEyes=state.form.activeEyes;
+      secEyes.appendChild(makeEyePanel(eyeData,d=>{state.form.eyes[ae]=d;},state.errors[ae+"_s"]));
     } else {
       const eye=eyes[0];
-      secEyes.appendChild(makeEyePanel(state.form.eyes[eye]||mkEye(),d=>{state.form.eyes[eye]=d;},state.errors[eye+"_s"]));
+      const eyeData1=state.form.eyes[eye]||mkEye();
+      eyeData1._eye=eye; eyeData1._parentActiveEyes=state.form.activeEyes;
+      secEyes.appendChild(makeEyePanel(eyeData1,d=>{state.form.eyes[eye]=d;},state.errors[eye+"_s"]));
     }
   }
 
@@ -762,7 +795,7 @@ function buildDayCard(r,selDate,index){
   const displayTime=times[0]||"";
   if(displayTime) badges.innerHTML+=`<span style="background:#E8F4F5;color:${C.teal};border-radius:8px;padding:3px 9px;font-size:0.8rem;font-weight:800;">⏰ ${displayTime}</span>`;
   // Drag handle
-  const dragHandle=document.createElement("div"); dragHandle.innerHTML="⠿"; dragHandle.style.cssText=`font-size:1.2rem;color:#C8C0B8;cursor:grab;padding:0 6px;user-select:none;flex-shrink:0;`; dragHandle.title="Arrastrar para reordenar";
+  const dragHandle=document.createElement("div"); dragHandle.innerHTML="&#8291;&#8291;&#8291;"; dragHandle.style.cssText=`font-size:1.2rem;color:#C8C0B8;cursor:grab;padding:0 6px;user-select:none;flex-shrink:0;letter-spacing:2px;`; dragHandle.title="Arrastrar para reordenar";
   dragHandle.setAttribute("draggable","false"); // handle is visual only, card is draggable
   cardHead.appendChild(nameBox); cardHead.appendChild(badges); cardHead.appendChild(dragHandle); card.appendChild(cardHead);
 
@@ -809,7 +842,8 @@ function buildDayCard(r,selDate,index){
       // Base costs
       [["Gastos",c.gastos],["Anestesiólogo",c.anest]].forEach(([lb,v])=>{
         const row=document.createElement("div"); row.style.cssText="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:2px;";
-        row.innerHTML=`<span style="color:${lb==="Anestesiólogo"&&na?C.orange:C.stone};">${lb==="Anestesiólogo"&&na?"⚠️ ":""}${lb}</span><span style="font-weight:700;">${fmtCost(v)||"—"}</span>`; costs.appendChild(row);
+        const label=lb==="Gastos"&&c.gastosAmbosOjos?`${lb} <span style="background:#E8F4F5;color:#0D6B72;border-radius:4px;padding:1px 5px;font-size:0.68rem;font-weight:700;">Ambos ojos</span>`:lb;
+        row.innerHTML=`<span style="color:${lb==="Anestesiólogo"&&na?C.orange:C.stone};">${lb==="Anestesiólogo"&&na?"⚠️ ":""}${label}</span><span style="font-weight:700;">${fmtCost(v)||"—"}</span>`; costs.appendChild(row);
       });
       // 3 LIO subtotals
       const lioHdr=document.createElement("div"); lioHdr.style.cssText=`font-size:0.68rem;font-weight:800;text-transform:uppercase;color:${C.teal};margin:6px 0 4px;`; lioHdr.textContent="Presupuesto según LIO:"; costs.appendChild(lioHdr);
@@ -837,14 +871,82 @@ function buildDayCard(r,selDate,index){
 function buildDailyView(){
   const wrap=document.createElement("div");
   let selDate=toStr();
+
+  function buildCalendar(){
+    const[sy,sm]=selDate.split("-").map(Number);
+    const cal=document.createElement("div"); cal.style.cssText=`background:white;border-radius:14px;border:1px solid ${C.border};padding:12px;margin-bottom:14px;`;
+
+    // Header: prev / month-year / next
+    const hdr=document.createElement("div"); hdr.style.cssText="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;";
+    const prevBtn=document.createElement("button"); prevBtn.textContent="‹"; prevBtn.style.cssText=`background:none;border:1px solid ${C.border};border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:1.2rem;color:${C.ink};`;
+    const nextBtn=document.createElement("button"); nextBtn.textContent="›"; nextBtn.style.cssText=prevBtn.style.cssText;
+    const monthNames=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+    const titleSpan=document.createElement("span"); titleSpan.style.cssText="font-weight:800;font-size:0.95rem;"; titleSpan.textContent=`${monthNames[sm-1]} ${sy}`;
+    hdr.appendChild(prevBtn); hdr.appendChild(titleSpan); hdr.appendChild(nextBtn);
+
+    prevBtn.addEventListener("click",()=>{
+      let nm=sm-1,ny=sy; if(nm<1){nm=12;ny--;}
+      const d=new Date(ny,nm-1,1); selDate=`${ny}-${String(nm).padStart(2,"0")}-01`;
+      renderDay();
+    });
+    nextBtn.addEventListener("click",()=>{
+      let nm=sm+1,ny=sy; if(nm>12){nm=1;ny++;}
+      selDate=`${ny}-${String(nm).padStart(2,"0")}-01`;
+      renderDay();
+    });
+    cal.appendChild(hdr);
+
+    // Day names
+    const dayNames=["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
+    const grid=document.createElement("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;";
+    dayNames.forEach(d=>{
+      const cell=document.createElement("div"); cell.style.cssText=`text-align:center;font-size:0.65rem;font-weight:800;color:${C.stone};padding:3px 0;`; cell.textContent=d; grid.appendChild(cell);
+    });
+
+    // Get all scheduled dates this month
+    const live=applyAuto(state.records);
+    const scheduledDates=new Set();
+    live.forEach(r=>(r.activeEyes||[]).forEach(eye=>{
+      const d=r.eyes?.[eye]?.dateScheduled;
+      if(d) scheduledDates.add(d);
+    }));
+
+    // First day of month
+    const firstDay=new Date(sy,sm-1,1).getDay();
+    const daysInMonth=new Date(sy,sm,0).getDate();
+
+    // Empty cells before first day
+    for(let i=0;i<firstDay;i++){
+      const cell=document.createElement("div"); grid.appendChild(cell);
+    }
+
+    for(let d=1;d<=daysInMonth;d++){
+      const dateStr=`${sy}-${String(sm).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      const isSelected=dateStr===selDate;
+      const isToday=dateStr===toStr();
+      const hasSurg=scheduledDates.has(dateStr);
+      const cell=document.createElement("div");
+      cell.style.cssText=`text-align:center;cursor:pointer;border-radius:8px;padding:5px 2px;font-size:0.82rem;font-weight:${isSelected?800:500};background:${isSelected?C.teal:"transparent"};color:${isSelected?"white":isToday?C.teal:C.ink};border:2px solid ${isToday&&!isSelected?C.teal:"transparent"};position:relative;`;
+      cell.textContent=d;
+      if(hasSurg){
+        const dot=document.createElement("div"); dot.style.cssText=`width:5px;height:5px;border-radius:50%;background:${isSelected?"white":C.orange};margin:2px auto 0;`;
+        cell.appendChild(dot);
+      }
+      cell.addEventListener("click",()=>{selDate=dateStr;renderDay();});
+      grid.appendChild(cell);
+    }
+    cal.appendChild(grid);
+    return cal;
+  }
+
   function renderDay(){
     wrap.innerHTML="";
 
-    const topRow=document.createElement("div"); topRow.style.cssText="display:flex;gap:10px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap;";
-    const dateFld=document.createElement("div"); dateFld.style.flex="1";
-    const di=inp(selDate,v=>{selDate=v;renderDay();},"","date",{maxWidth:"220px"});
-    dateFld.appendChild(fldWrap("Fecha",di));
-    topRow.appendChild(dateFld);
+    // Inline calendar
+    wrap.appendChild(buildCalendar());
+
+    const topRow=document.createElement("div"); topRow.style.cssText="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;";
+
     const printBtn=btn("🖨️ Imprimir",()=>{
       const[py,pm,pd]=selDate.split("-");
       const pdays=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
@@ -888,7 +990,7 @@ function buildDailyView(){
             h+=`</div>`;
             if(ed.lioType==="Premium personalizado") h+=`<div style="margin-top:5px;padding:6px 9px;background:#FDF4E3;border:1.5px solid #E8C97A;border-radius:7px;font-size:0.78rem;color:#B07D2A;font-weight:700;">⚠️ Recordar marcaje pre-quirúrgico</div>`;
           }
-          if(ed.dateScheduled) h+=`<div style="margin-top:6px;font-size:0.78rem;color:#555;">📅 ${fmtDL(ed.dateScheduled)}${ed.timeScheduled?` · ⏰ ${ed.timeScheduled}`:""}</div>`;
+          if(ed.dateScheduled) h+=`<div style="margin-top:6px;font-size:0.78rem;color:#555;">📅 ${fmtDL(ed.dateScheduled)}${ed.timeScheduled?" · ⏰ "+ed.timeScheduled:""}</div>`;
           h+=`</div>`;
         });
         h+=`</div>`;
@@ -1333,7 +1435,7 @@ function render(){
                   ${ed.lioNotes?`<br>📦 ${ed.lioNotes}`:""}
                 </div>`:""}
                 <table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:0.88rem;">
-                  <tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Gastos de quirófano</td><td style="text-align:right;font-weight:600;">${fmt(c.gastos)}</td></tr>
+                  <tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Gastos de quirófano${c.gastosAmbosOjos?` <span style="background:#E8F4F5;color:#0D6B72;border-radius:4px;padding:1px 6px;font-size:0.75rem;font-weight:700;">Ambos ojos</span>`:"" }</td><td style="text-align:right;font-weight:600;">${fmt(c.gastos)}</td></tr>
                   <tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Anestesiólogo</td><td style="text-align:right;font-weight:600;">${fmt(c.anest)}</td></tr>
                   ${(()=>{
                     const isFacoPrint=["Faco + LIO","Faco + LIO + Antiangio","Faco + Trabe","Faco + Vitre"].includes(ed.surgery);
