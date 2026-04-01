@@ -1,0 +1,1480 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-title" content="COE Morelia"/>
+<title>COE Morelia · Cirugías</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F7F5F2;color:#1A1814;overscroll-behavior:none;}
+input,select,textarea,button{font-family:inherit;}
+@media print{
+  body > *{display:none!important;}
+  #coe-print-layer{display:block!important;padding:20px;font-family:-apple-system,sans-serif;color:#1A1814;}
+  #coe-quote-layer{display:block!important;padding:28px;font-family:-apple-system,sans-serif;color:#1A1814;max-width:680px;margin:0 auto;}
+  .print-costs{display:none!important;}
+  .day-card{border:1px solid #ccc!important;border-radius:8px!important;margin-bottom:16px!important;page-break-inside:avoid;overflow:visible!important;}
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const SURGERY_DB={
+  "Catarata":["Faco + LIO","Faco + LIO + Antiangio","Faco + Trabe","Faco + Vitre"],
+  "Glaucoma":["Trabeculectomía","Trabeculectomía con mitomicina C","Colocación de válvula de Ahmed"],
+  "Retina y Vítreo":["Cerclaje escleral","Vitrectomía","Inyección intravítrea (anti-VEGF)"],
+  "Superficie Ocular":["Excéresis de pterigión con autoinjerto + pegamento de fibrina","Resección de lesión palpebral / conjuntival"],
+  "Láser":["Láser diodo","Láser YAG"]
+};
+const ALL_SURGERIES=Object.values(SURGERY_DB).flat();
+const LIO_TYPES=["Monofocal hidrofílico","Monofocal hidrofóbico","Tórico","Multifocal","Multifocal tórico","EDOF","EDOF tórico","Acomodativo","Premium personalizado","Otro"];
+// Risk is now PER EYE
+const RISK_LEVELS=[
+  {val:"standard",label:"Estándar",color:"#1E7A48",pale:"#E6F5ED",icon:"🟢"},
+  {val:"medium",  label:"Medio",   color:"#C05C10",pale:"#FEF0E6",icon:"🟡"},
+  {val:"complex", label:"Compleja",color:"#C03838",pale:"#FDEAEA",icon:"🔴"}
+];
+const C={
+  cream:"#F7F5F2",warm:"#FFFCF9",ink:"#1A1814",inkSoft:"#3D3830",
+  stone:"#8A8178",border:"#E5DED6",
+  teal:"#0D6B72",tealPale:"#E8F4F5",
+  gold:"#B07D2A",red:"#C03838",orange:"#C05C10",
+  green:"#1E7A48",blue:"#1A5FA8",bluePale:"#E8F0FA"
+};
+
+// ── HELPERS ──────────────────────────────────────────────────
+const fmt=n=>(n!=null&&n!==""&&!isNaN(n))?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(n):null;
+const fmtD=d=>{if(!d)return"";const[y,m,day]=d.split("-");return`${parseInt(day)} ${["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][parseInt(m)-1]} ${y}`;};
+const fmtDL=d=>{if(!d)return"";const[y,m,day]=d.split("-");return`${parseInt(day)} de ${["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"][parseInt(m)-1]} de ${y}`;};
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
+const toStr=()=>new Date().toISOString().split("T")[0];
+const isPast=d=>d&&d<toStr();
+const dDiff=d=>{if(!d)return null;return Math.ceil((new Date(d)-new Date())/864e5);};
+const mkEye=()=>({surgery:"",surgeryPlus:[],lioNeeded:false,lioType:"",lioPower:"",lioCyl:"",lioAxis:"",lioAdd:"",lioNotes:"",dateTentative:"",dateScheduled:"",risk:"standard",costs:{gastos:"",anest:"",implantes:"",otrosAmt:"",otrosDesc:""}});
+const TORIC_TYPES=["Tórico","Multifocal tórico","EDOF tórico","Premium personalizado"];
+const MULTIFOCAL_TYPES=["Multifocal","Multifocal tórico","EDOF","EDOF tórico","Acomodativo","Premium personalizado"];
+function fmtPower(v){if(v===""||v==null)return"";const n=parseFloat(v);if(isNaN(n))return v;return(n>=0?"+":"")+n.toFixed(2);}
+const fmtCost=n=>{if(n==null||n===""||isNaN(n)||parseFloat(n)===0)return null;return new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(n);};
+const mkForm=()=>({name:"",tel1:"",tel2:"",activeEyes:[],eyeFirst:"",eyes:{OD:mkEye(),OI:mkEye()},status:"pending",notes:""});
+
+// ── SUPABASE ──────────────────────────────────────────────────
+const SB_URL="https://ckjkdenwqicdjvodflba.supabase.co";
+const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNramtkZW53cWljZGp2b2RmbGJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MDIzMzgsImV4cCI6MjA4OTE3ODMzOH0.7pd1oAevIWY81e0DTSMBFtzSECfQNa_mOqstG_UEj-0";
+const sbHeaders={"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY};
+
+function recToRow(r){return{id:r.id,nombre:r.name||"",tel1:r.tel1||"",tel2:r.tel2||"",active_eyes:r.activeEyes||[],eye_first:r.eyeFirst||"",eyes:r.eyes||{},status:r.status||"pending",notes:r.notes||"",updated_at:new Date().toISOString()};}
+function rowToRec(row){return{id:row.id,name:row.nombre,tel1:row.tel1||"",tel2:row.tel2||"",activeEyes:row.active_eyes||[],eyeFirst:row.eye_first||"",eyes:row.eyes||{},status:row.status||"pending",notes:row.notes||""};}
+
+async function sbLoad(){
+  try{
+    const res=await fetch(SB_URL+"/rest/v1/cotizaciones_s2?select=*&order=created_at.asc",{headers:sbHeaders});
+    if(!res.ok) throw new Error(await res.text());
+    const rows=await res.json();
+    state.syncError=false;
+    return rows.map(rowToRec);
+  }catch(e){
+    console.error("Supabase load error:",e);
+    state.syncError=true;
+    try{return JSON.parse(localStorage.getItem("oftalmo-v3")||"[]");}catch(e2){return[];}
+  }
+}
+
+async function sbSave(rec){
+  const row=recToRow(rec);
+  try{
+    const res=await fetch(SB_URL+"/rest/v1/cotizaciones_s2",{
+      method:"POST",headers:{...sbHeaders,"Prefer":"resolution=merge-duplicates"},
+      body:JSON.stringify(row)
+    });
+    if(!res.ok) throw new Error(await res.text());
+  }catch(e){console.error("Supabase save error:",e);}
+  // Always mirror to localStorage as backup
+  const local=JSON.parse(localStorage.getItem("oftalmo-v3")||"[]");
+  const idx=local.findIndex(x=>x.id===rec.id);
+  if(idx>=0) local[idx]=rec; else local.unshift(rec);
+  localStorage.setItem("oftalmo-v3",JSON.stringify(local));
+}
+
+async function sbDelete(id){
+  try{
+    const res=await fetch(SB_URL+"/rest/v1/cotizaciones_s2?id=eq."+id,{method:"DELETE",headers:sbHeaders});
+    if(!res.ok) throw new Error(await res.text());
+  }catch(e){console.error("Supabase delete error:",e);}
+  const local=JSON.parse(localStorage.getItem("oftalmo-v3")||"[]").filter(x=>x.id!==id);
+  localStorage.setItem("oftalmo-v3",JSON.stringify(local));
+}
+
+// ── STATE ────────────────────────────────────────────────────
+let state={tab:"list",records:[],filter:"all",search:"",modal:null,form:mkForm(),errors:{},modalEyeTab:"OD",schedModal:null,expandedDays:{},customSurgeries:[],sortBy:"name",sortDir:"asc",syncing:false,syncError:false};
+
+function getAllSurgeries(){return [...Object.values(SURGERY_DB).flat(),...state.customSurgeries];}
+
+async function loadRecords(){
+  try{state.customSurgeries=JSON.parse(localStorage.getItem("oftalmo-custom-surg")||"[]");}catch(e){state.customSurgeries=[];}
+  // Load from localStorage first for instant display
+  try{state.records=JSON.parse(localStorage.getItem("oftalmo-v3")||"[]");}catch(e){state.records=[];}
+  state.records=applyAuto(state.records); render();
+  // Then sync from Supabase
+  state.syncing=true; render();
+  const remote=await sbLoad();
+  // Only replace local data if Supabase has records — prevents wiping local data when Supabase is empty
+  if(remote.length>0){
+    state.records=applyAuto(remote);
+    localStorage.setItem("oftalmo-v3",JSON.stringify(state.records));
+  }
+  // If Supabase is empty but we have local data, keep local (user needs to tap ☁️ to upload)
+  state.syncing=false; render();
+}
+function saveCustomSurgeries(){localStorage.setItem("oftalmo-custom-surg",JSON.stringify(state.customSurgeries));}
+
+// Email backup on every save
+const BACKUP_EMAIL="drvillegasta@gmail.com";
+function sendEmailBackup(r){
+  const eyes=(r.activeEyes||[]);
+  let body=`COTIZACIÓN COE\n\nPaciente: ${r.name}\nTel 1: ${r.tel1}  |  Tel 2: ${r.tel2}\n\n`;
+  eyes.forEach(eye=>{
+    const ed=r.eyes?.[eye]||{}; const c=ed.costs||{};
+    const rl=RISK_LEVELS.find(x=>x.val===(ed.risk||"standard"))||RISK_LEVELS[0];
+    body+=`=== ${eye} — ${rl.icon} ${rl.label} ===\n`;
+    body+=`Cirugía: ${ed.surgery||"—"}`;
+    if((ed.surgeryPlus||[]).length) body+=`  +  ${ed.surgeryPlus.join("  +  ")}`;
+    body+="\n";
+    if(ed.lioNeeded){
+      body+=`LIO: ${ed.lioType||"—"}`;
+      if(ed.lioPower) body+=`  ${ed.lioPower}D`;
+      if(ed.lioCyl) body+=`  |  Cil: ${ed.lioCyl}D  Eje: ${ed.lioAxis||"?"}°`;
+      if(ed.lioAdd) body+=`  |  Adición: ${ed.lioAdd}D`;
+      body+="\n";
+      if(ed.lioNotes) body+=`Marca/Modelo: ${ed.lioNotes}\n`;
+    }
+    if(ed.dateTentative) body+=`Fecha tentativa: ${fmtD(ed.dateTentative)}\n`;
+    if(ed.dateScheduled) body+=`Fecha programada: ${fmtD(ed.dateScheduled)}\n`;
+    body+=`Gastos: $${c.gastos||"—"}  |  Anestesia: $${c.anest||"—"}  |  Implantes: $${c.implantes||"—"}`;
+    if(c.otrosAmt) body+=`  |  Otros: $${c.otrosAmt}${c.otrosDesc?" ("+c.otrosDesc+")":""}`;
+    body+="\n\n";
+  });
+  if(r.notes) body+=`Notas: ${r.notes}\n\n`;
+  body+=`Registrado: ${new Date().toLocaleString("es-MX")}`;
+  const subject=encodeURIComponent(`COE | ${r.name} — ${eyes.map(e=>{const s=r.eyes?.[e]?.surgery||"";return e+": "+s;}).join(" / ")}`);
+  const a=document.createElement("a");
+  a.href=`mailto:${BACKUP_EMAIL}?subject=${subject}&body=${encodeURIComponent(body)}`;
+  a.style.display="none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>document.body.removeChild(a),500);
+}
+function saveRecords(recs){
+  const u=applyAuto(recs);
+  localStorage.setItem("oftalmo-v3",JSON.stringify(u));
+  state.records=u;
+}
+function saveRecordRemote(rec){sbSave(rec);}
+function deleteRecordRemote(id){sbDelete(id);}
+
+function applyAuto(recs){
+  return recs.map(r=>{
+    if(r.status!=="scheduled")return r;
+    const active=r.activeEyes||[];
+    const allPast=active.length>0&&active.every(eye=>{const d=r.eyes?.[eye]?.dateScheduled;return d&&isPast(d);});
+    return allPast?{...r,status:"done"}:r;
+  });
+}
+
+// Migration: move old top-level risk to per-eye
+function migrateRecord(r){
+  const eyes={};
+  ["OD","OI"].forEach(eye=>{
+    const e=r.eyes?.[eye]||mkEye();
+    if(!e.risk) e.risk = r.risk||"standard";
+    eyes[eye]={...mkEye(),...e,costs:{...mkEye().costs,...(e.costs||{})},surgeryPlus:[...(e.surgeryPlus||[])],lioCyl:e.lioCyl||"",lioAxis:e.lioAxis||"",lioAdd:e.lioAdd||""};
+  });
+  return {...mkForm(),...r,eyes};
+}
+
+// ── DOM HELPERS ───────────────────────────────────────────────
+function inp(val,onchange,placeholder,type="text",extraStyle={}){
+  const i=document.createElement("input");
+  i.type=type; i.value=val||""; i.placeholder=placeholder||"";
+  Object.assign(i.style,{width:"100%",padding:"11px 12px",border:`1.5px solid ${C.border}`,borderRadius:"9px",fontSize:"16px",color:C.ink,background:"white",outline:"none",boxSizing:"border-box",...extraStyle});
+  i.addEventListener("input",e=>onchange(e.target.value));
+  return i;
+}
+function sel(val,onchange,options,extraStyle={}){
+  const s=document.createElement("select");
+  Object.assign(s.style,{width:"100%",padding:"11px 12px",border:`1.5px solid ${C.border}`,borderRadius:"9px",fontSize:"16px",color:C.ink,background:"white",outline:"none",boxSizing:"border-box",WebkitAppearance:"none",...extraStyle});
+  options.forEach(([v,l])=>{const o=document.createElement("option");o.value=v;o.textContent=l;if(v===val)o.selected=true;s.appendChild(o);});
+  s.addEventListener("change",e=>onchange(e.target.value));
+  return s;
+}
+function openPrint(innerHTML){
+  let layer=document.getElementById("coe-print-layer");
+  if(!layer){layer=document.createElement("div");layer.id="coe-print-layer";layer.style.display="none";document.body.appendChild(layer);}
+  layer.innerHTML=innerHTML;
+  // Small delay ensures DOM is painted before print dialog opens
+  setTimeout(()=>{
+    window.print();
+    setTimeout(()=>{layer.innerHTML="";},2000);
+  },120);
+}
+function btn(text,onclick,variant="primary",extraStyle={}){
+  const styles={primary:{background:C.teal,color:"white",border:"none"},outline:{background:"white",color:C.teal,border:`1.5px solid ${C.teal}`},danger:{background:"#FDEAEA",color:C.red,border:"1.5px solid #F0C0C0"},ghost:{background:"transparent",color:C.stone,border:`1.5px solid ${C.border}`}};
+  const b=document.createElement("button"); b.innerHTML=text;
+  const {className,...styleProps}=extraStyle;
+  if(className) b.className=className;
+  Object.assign(b.style,{display:"inline-flex",alignItems:"center",gap:"6px",padding:"10px 16px",borderRadius:"9px",fontSize:"0.85rem",fontWeight:"700",cursor:"pointer",...styles[variant],...styleProps});
+  b.addEventListener("click",onclick); return b;
+}
+function fldWrap(label,child,req=false,err=null){
+  const d=document.createElement("div"); d.style.marginBottom="10px";
+  const lbl=document.createElement("label");
+  lbl.style.cssText=`display:block;font-size:0.71rem;font-weight:700;color:${C.stone};margin-bottom:4px;letter-spacing:0.04em;text-transform:uppercase;`;
+  lbl.textContent=label;
+  if(req){const s=document.createElement("span");s.style.color=C.red;s.style.marginLeft="3px";s.textContent="*";lbl.appendChild(s);}
+  d.appendChild(lbl); d.appendChild(child);
+  if(err){const e=document.createElement("div");e.style.cssText=`font-size:0.7rem;color:${C.red};margin-top:3px;font-weight:600;`;e.textContent="⚠ "+err;d.appendChild(e);}
+  return d;
+}
+function makeSec(title){
+  const d=document.createElement("div"); d.style.marginBottom="18px";
+  const t=document.createElement("div");
+  t.style.cssText=`font-size:0.66rem;font-weight:800;text-transform:uppercase;letter-spacing:0.12em;color:${C.stone};margin-bottom:10px;padding-bottom:6px;border-bottom:1.5px solid ${C.border};`;
+  t.textContent=title; d.appendChild(t); return d;
+}
+function riskBadge(r){
+  const rl=RISK_LEVELS.find(x=>x.val===r)||RISK_LEVELS[0];
+  const s=document.createElement("span");
+  s.style.cssText=`display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:0.71rem;font-weight:700;background:${rl.pale};color:${rl.color};white-space:nowrap;`;
+  s.textContent=`${rl.icon} ${rl.label}`; return s;
+}
+function statusBadge(s){
+  const M={pending:{bg:"#FDF4E3",c:"#B07D2A",t:"⏳ Pendiente"},scheduled:{bg:"#E8F4F5",c:"#0D6B72",t:"📅 Programada"},done:{bg:"#E6F5ED",c:"#1E7A48",t:"✅ Operado/a"}};
+  const m=M[s]||M.pending;
+  const el=document.createElement("span");
+  el.style.cssText=`display:inline-flex;padding:3px 9px;border-radius:20px;font-size:0.71rem;font-weight:700;background:${m.bg};color:${m.c};white-space:nowrap;`;
+  el.textContent=m.t; return el;
+}
+
+// ── SURGERY PICKER ────────────────────────────────────────────
+function makeSurgeryPicker(val,onchange,placeholder){
+  const wrap=document.createElement("div"); wrap.style.position="relative";
+  const input=document.createElement("input"); input.value=val||""; input.placeholder=placeholder||"Buscar cirugía…";
+  Object.assign(input.style,{width:"100%",padding:"11px 12px",border:`1.5px solid ${C.border}`,borderRadius:"9px",fontSize:"16px",color:C.ink,background:"white",outline:"none",boxSizing:"border-box"});
+  const dropdown=document.createElement("div");
+  Object.assign(dropdown.style,{position:"absolute",top:"calc(100% + 2px)",left:"0",right:"0",background:"white",border:`1.5px solid ${C.border}`,borderRadius:"10px",boxShadow:"0 8px 28px rgba(0,0,0,0.14)",zIndex:"3000",maxHeight:"260px",overflowY:"auto",display:"none"});
+  function populate(q){
+    dropdown.innerHTML="";
+    if(q.length===0){
+      Object.entries(SURGERY_DB).forEach(([cat,items])=>{
+        const ch=document.createElement("div"); ch.style.cssText=`padding:5px 12px;font-size:0.62rem;font-weight:800;text-transform:uppercase;color:${C.teal};background:${C.tealPale};border-bottom:1px solid ${C.border};`; ch.textContent=cat; dropdown.appendChild(ch);
+        items.forEach(s=>{const row=document.createElement("div");row.style.cssText=`padding:10px 13px;font-size:0.9rem;cursor:pointer;color:${C.inkSoft};border-bottom:1px solid ${C.border};`;row.textContent=s;row.addEventListener("mousedown",()=>{input.value=s;onchange(s);dropdown.style.display="none";});row.addEventListener("touchend",e=>{e.preventDefault();input.value=s;onchange(s);dropdown.style.display="none";});dropdown.appendChild(row);});
+      });
+      if(state.customSurgeries.length){
+        const ch=document.createElement("div"); ch.style.cssText=`padding:5px 12px;font-size:0.62rem;font-weight:800;text-transform:uppercase;color:${C.gold};background:#FEF9EC;border-bottom:1px solid ${C.border};`; ch.textContent="Personalizados"; dropdown.appendChild(ch);
+        state.customSurgeries.forEach(s=>{const row=document.createElement("div");row.style.cssText=`padding:10px 13px;font-size:0.9rem;cursor:pointer;color:${C.inkSoft};border-bottom:1px solid ${C.border};`;row.textContent=s;row.addEventListener("mousedown",()=>{input.value=s;onchange(s);dropdown.style.display="none";});row.addEventListener("touchend",e=>{e.preventDefault();input.value=s;onchange(s);dropdown.style.display="none";});dropdown.appendChild(row);});
+      }
+    } else {
+      const matches=getAllSurgeries().filter(s=>s.toLowerCase().includes(q.toLowerCase())).slice(0,12);
+      if(!matches.length){const r=document.createElement("div");r.style.cssText=`padding:10px 13px;font-size:0.85rem;color:${C.stone};font-style:italic;`;r.textContent="Se guardará tal cual";dropdown.appendChild(r);}
+      else matches.forEach(s=>{const row=document.createElement("div");row.style.cssText=`padding:10px 13px;font-size:0.9rem;cursor:pointer;color:${C.inkSoft};border-bottom:1px solid ${C.border};`;row.textContent=s;row.addEventListener("mousedown",()=>{input.value=s;onchange(s);dropdown.style.display="none";});row.addEventListener("touchend",e=>{e.preventDefault();input.value=s;onchange(s);dropdown.style.display="none";});dropdown.appendChild(row);});
+    }
+    // Always show "Otra cirugía" at the bottom
+    const otraRow=document.createElement("div");
+    otraRow.style.cssText=`padding:10px 13px;font-size:0.88rem;font-weight:700;color:${C.teal};cursor:pointer;display:flex;align-items:center;gap:6px;border-top:2px solid ${C.border};background:${C.tealPale};`;
+    otraRow.innerHTML=`<span style="font-size:1.1rem;">✏️</span> Otra cirugía (texto libre)`;
+    otraRow.addEventListener("mousedown",e=>{e.preventDefault();showOtraModal();});
+    otraRow.addEventListener("touchend",e=>{e.preventDefault();showOtraModal();});
+    dropdown.appendChild(otraRow);
+  }
+  function showOtraModal(){
+    dropdown.style.display="none";
+    // Modal overlay
+    const ov=document.createElement("div");
+    ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9000;display:flex;align-items:center;justify-content:center;padding:24px;";
+    const box=document.createElement("div");
+    box.style.cssText=`background:white;border-radius:14px;padding:20px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.3);`;
+    const title=document.createElement("div"); title.style.cssText=`font-weight:800;font-size:1rem;margin-bottom:6px;color:${C.ink};`; title.textContent="✏️ Otra cirugía";
+    const sub=document.createElement("div"); sub.style.cssText=`font-size:0.8rem;color:${C.stone};margin-bottom:14px;`; sub.textContent="Escribe el procedimiento libremente. Puedes guardarlo para usarlo después.";
+    const ta=document.createElement("textarea"); ta.placeholder="Ej: Extracción extracapsular complicada…";
+    ta.style.cssText=`width:100%;border:1.5px solid ${C.border};border-radius:9px;padding:11px 12px;font-size:0.95rem;font-family:inherit;resize:vertical;min-height:90px;outline:none;box-sizing:border-box;`;
+    const row=document.createElement("div"); row.style.cssText="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;";
+    const cancelBtn=btn("Cancelar",()=>document.body.removeChild(ov),"ghost");
+    const saveOnlyBtn=btn("Usar una vez",()=>{
+      const v=ta.value.trim(); if(!v)return;
+      input.value=v; onchange(v); document.body.removeChild(ov);
+    },"outline");
+    const saveAndKeepBtn=btn("Usar y guardar",()=>{
+      const v=ta.value.trim(); if(!v)return;
+      if(!getAllSurgeries().some(s=>s.toLowerCase()===v.toLowerCase())){
+        state.customSurgeries=[...state.customSurgeries,v];
+        saveCustomSurgeries();
+      }
+      input.value=v; onchange(v); document.body.removeChild(ov);
+    });
+    row.appendChild(cancelBtn); row.appendChild(saveOnlyBtn); row.appendChild(saveAndKeepBtn);
+    box.appendChild(title); box.appendChild(sub); box.appendChild(ta); box.appendChild(row);
+    ov.appendChild(box); document.body.appendChild(ov);
+    setTimeout(()=>ta.focus(),100);
+  }
+  input.addEventListener("input",e=>{onchange(e.target.value);populate(e.target.value);dropdown.style.display="block";});
+  input.addEventListener("focus",()=>{populate(input.value);dropdown.style.display="block";});
+  input.addEventListener("blur",()=>setTimeout(()=>dropdown.style.display="none",250));
+  wrap.appendChild(input); wrap.appendChild(dropdown); return wrap;
+}
+
+// ── EYE PANEL (risk per eye) ──────────────────────────────────
+function makeEyePanel(eyeData,onchange,surgErr){
+  const wrap=document.createElement("div");
+  Object.assign(wrap.style,{background:C.cream,borderRadius:"12px",padding:"14px",border:`1.5px solid ${C.border}`});
+  let data={...eyeData};
+  const update=(k,v)=>{data={...data,[k]:v};onchange(data);};
+  const updateCost=(k,v)=>{data={...data,costs:{...data.costs,[k]:v}};onchange(data);};
+
+  // Risk per eye
+  const riskSec=makeSec("⚠️ Riesgo Quirúrgico"); wrap.appendChild(riskSec);
+  const riskGrid=document.createElement("div"); riskGrid.style.cssText="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;";
+  function renderRisk(){
+    riskGrid.innerHTML="";
+    RISK_LEVELS.forEach(rl=>{
+      const active=data.risk===rl.val;
+      const rb=document.createElement("button");
+      rb.style.cssText=`padding:8px 4px;border-radius:9px;border:2px solid ${active?rl.color:C.border};background:${active?rl.pale:"white"};font-weight:800;font-size:0.78rem;cursor:pointer;color:${active?rl.color:C.stone};text-align:center;`;
+      rb.innerHTML=`<div style="font-size:1.1rem;margin-bottom:2px;">${rl.icon}</div>${rl.label}`;
+      rb.addEventListener("click",()=>{update("risk",rl.val);renderRisk();});
+      riskGrid.appendChild(rb);
+    });
+  }
+  renderRisk(); riskSec.appendChild(riskGrid);
+
+  // Surgery
+  const surgPicker=makeSurgeryPicker(data.surgery,v=>{data.surgery=v;onchange(data);buildCostTable();},"Buscar cirugía…");
+  wrap.appendChild(fldWrap("Procedimiento",surgPicker,true,surgErr));
+
+  // Simultáneos
+  const plusWrap=document.createElement("div"); plusWrap.style.marginBottom="14px";
+  const plusLbl=document.createElement("label"); plusLbl.style.cssText=`display:block;font-size:0.71rem;font-weight:700;color:${C.stone};margin-bottom:4px;letter-spacing:0.04em;text-transform:uppercase;`; plusLbl.textContent="Simultáneos"; plusWrap.appendChild(plusLbl);
+  const plusRow=document.createElement("div"); plusRow.style.cssText="display:flex;gap:7px;";
+  let plusVal="";
+  const plusPicker=makeSurgeryPicker("",v=>plusVal=v,"Agregar simultáneo…"); plusPicker.style.flex="1";
+  const plusBtn=btn("+",()=>{if(!plusVal.trim())return;update("surgeryPlus",[...(data.surgeryPlus||[]),plusVal.trim()]);plusVal="";renderPlus();},"outline",{padding:"10px 13px"});
+  plusRow.appendChild(plusPicker); plusRow.appendChild(plusBtn); plusWrap.appendChild(plusRow);
+  const plusTags=document.createElement("div"); plusTags.style.cssText="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;";
+  function renderPlus(){
+    plusTags.innerHTML="";
+    (data.surgeryPlus||[]).forEach((p,i)=>{
+      const tag=document.createElement("span"); tag.style.cssText=`background:${C.tealPale};color:${C.teal};border-radius:6px;padding:3px 8px;font-size:0.77rem;font-weight:700;display:inline-flex;align-items:center;gap:4px;`;
+      tag.textContent="+"+p;
+      const x=document.createElement("button"); x.textContent="✕"; x.style.cssText=`background:none;border:none;color:${C.teal};cursor:pointer;padding:0;`;
+      x.addEventListener("click",()=>{update("surgeryPlus",(data.surgeryPlus||[]).filter((_,j)=>j!==i));renderPlus();});
+      tag.appendChild(x); plusTags.appendChild(tag);
+    });
+  }
+  renderPlus(); plusWrap.appendChild(plusTags); wrap.appendChild(plusWrap);
+
+  // LIO
+  const lioSec=document.createElement("div"); lioSec.style.cssText=`padding-top:12px;border-top:1px solid ${C.border};margin-bottom:14px;`;
+  const lioChk=document.createElement("label"); lioChk.style.cssText="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.9rem;font-weight:600;";
+  const cb=document.createElement("input"); cb.type="checkbox"; cb.checked=!!data.lioNeeded; cb.style.cssText=`width:18px;height:18px;accent-color:${C.teal};`;
+  cb.addEventListener("change",e=>{update("lioNeeded",e.target.checked);renderLio();});
+  lioChk.appendChild(cb); lioChk.appendChild(document.createTextNode("🔬 Lente intraocular (LIO)")); lioSec.appendChild(lioChk);
+  const lioFields=document.createElement("div"); lioFields.style.cssText="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;";
+  function renderLio(){
+    lioFields.innerHTML=""; lioFields.style.display=data.lioNeeded?"grid":"none";
+    if(!data.lioNeeded)return;
+    const opts=[["","Seleccionar…"],...LIO_TYPES.map(t=>[t,t])];
+    const isToric=TORIC_TYPES.includes(data.lioType);
+    const isMulti=MULTIFOCAL_TYPES.includes(data.lioType);
+
+    // Row 1: Tipo + Potencia (with stepper)
+    lioFields.appendChild(fldWrap("Tipo",sel(data.lioType,v=>{
+      update("lioType",v);
+      // Autocomplete implantes price from LIO price settings
+      const prices=JSON.parse(localStorage.getItem("coe-lio-prices")||"{}");
+      const isToric2=TORIC_TYPES.includes(v);
+      const isMulti2=MULTIFOCAL_TYPES.includes(v);
+      let priceKey="monofocal";
+      if(isMulti2) priceKey="multifocal";
+      else if(isToric2) priceKey="torico";
+      if(prices[priceKey]&&!(data.costs?.implantes)){
+        update("costs",{...data.costs,implantes:prices[priceKey]});
+      }
+      renderLio();
+    },opts)));
+
+    // Power field with +/- buttons
+    const powerWrap=document.createElement("div");
+    const powerRow=document.createElement("div"); powerRow.style.cssText="display:flex;gap:4px;align-items:stretch;";
+    const minusBtn=document.createElement("button"); minusBtn.textContent="−"; minusBtn.type="button";
+    Object.assign(minusBtn.style,{padding:"0 12px",border:`1.5px solid ${C.border}`,borderRadius:"9px 0 0 9px",background:"white",fontSize:"1.1rem",cursor:"pointer",color:C.ink,fontWeight:"700",flexShrink:"0"});
+    const powerInp=document.createElement("input"); powerInp.type="text"; powerInp.value=fmtPower(data.lioPower); powerInp.placeholder="+21.00";
+    Object.assign(powerInp.style,{flex:"1",padding:"11px 8px",border:`1.5px solid ${C.border}`,borderLeft:"none",borderRight:"none",fontSize:"16px",color:C.ink,textAlign:"center",outline:"none",fontWeight:"700"});
+    powerInp.addEventListener("blur",e=>{const v=fmtPower(e.target.value);powerInp.value=v;update("lioPower",v);});
+    powerInp.addEventListener("input",e=>update("lioPower",e.target.value));
+    const plusBtn=document.createElement("button"); plusBtn.textContent="+"; plusBtn.type="button";
+    Object.assign(plusBtn.style,{padding:"0 12px",border:`1.5px solid ${C.border}`,borderRadius:"0 9px 9px 0",background:"white",fontSize:"1.1rem",cursor:"pointer",color:C.ink,fontWeight:"700",flexShrink:"0"});
+    minusBtn.addEventListener("click",()=>{const cur=parseFloat(data.lioPower)||0;const n=Math.round((cur-0.5)*100)/100;const v=(n>=0?"+":"")+n.toFixed(2);powerInp.value=v;update("lioPower",v);});
+    plusBtn.addEventListener("click",()=>{const cur=parseFloat(data.lioPower)||0;const n=Math.round((cur+0.5)*100)/100;const v=(n>=0?"+":"")+n.toFixed(2);powerInp.value=v;update("lioPower",v);});
+    powerRow.appendChild(minusBtn); powerRow.appendChild(powerInp); powerRow.appendChild(plusBtn);
+    powerWrap.appendChild(powerRow);
+    lioFields.appendChild(fldWrap("Potencia (D)",powerWrap));
+
+    // Cilindro + Eje (for toric types)
+    if(isToric){
+      const cylInp=document.createElement("input"); cylInp.type="text"; cylInp.value=fmtPower(data.lioCyl); cylInp.placeholder="-1.00";
+      Object.assign(cylInp.style,{width:"100%",padding:"11px 12px",border:`1.5px solid ${C.border}`,borderRadius:"9px",fontSize:"16px",color:C.ink,outline:"none",boxSizing:"border-box",textAlign:"center",fontWeight:"700"});
+      cylInp.addEventListener("blur",e=>{const v=fmtPower(e.target.value);cylInp.value=v;update("lioCyl",v);});
+      cylInp.addEventListener("input",e=>update("lioCyl",e.target.value));
+      lioFields.appendChild(fldWrap("Cilindro (D)",cylInp));
+
+      const axisInp=document.createElement("input"); axisInp.type="number"; axisInp.min="0"; axisInp.max="180"; axisInp.value=data.lioAxis||""; axisInp.placeholder="90";
+      Object.assign(axisInp.style,{width:"100%",padding:"11px 12px",border:`1.5px solid ${C.border}`,borderRadius:"9px",fontSize:"16px",color:C.ink,outline:"none",boxSizing:"border-box",textAlign:"center",fontWeight:"700"});
+      axisInp.addEventListener("input",e=>update("lioAxis",e.target.value));
+      lioFields.appendChild(fldWrap("Eje (°)",axisInp));
+    }
+
+    // Adición (for multifocal types)
+    if(isMulti){
+      const addInp=document.createElement("input"); addInp.type="text"; addInp.value=data.lioAdd?"+"+parseFloat(data.lioAdd).toFixed(2):""; addInp.placeholder="+3.00";
+      Object.assign(addInp.style,{width:"100%",padding:"11px 12px",border:`1.5px solid ${C.border}`,borderRadius:"9px",fontSize:"16px",color:C.ink,outline:"none",boxSizing:"border-box",textAlign:"center",fontWeight:"700"});
+      addInp.addEventListener("blur",e=>{const n=parseFloat(e.target.value);if(!isNaN(n)){const v="+"+Math.abs(n).toFixed(2);addInp.value=v;update("lioAdd",v);}else update("lioAdd",e.target.value);});
+      addInp.addEventListener("input",e=>update("lioAdd",e.target.value));
+      const addWrap=document.createElement("div"); addWrap.style.gridColumn=isToric?"":"1/-1";
+      addWrap.appendChild(fldWrap("Adición (D)",addInp)); lioFields.appendChild(addWrap);
+    }
+
+    // Marca/Modelo — full width
+    const md=document.createElement("div"); md.style.gridColumn="1/-1";
+    md.appendChild(fldWrap("Marca / Modelo",inp(data.lioNotes,v=>update("lioNotes",v),"Alcon AcrySof SN60WF…"))); lioFields.appendChild(md);
+  }
+  renderLio(); lioSec.appendChild(lioFields); wrap.appendChild(lioSec);
+
+  // Dates
+  const dateGrid=document.createElement("div"); dateGrid.style.cssText=`display:grid;grid-template-columns:1fr 1fr;gap:10px;padding-top:12px;border-top:1px solid ${C.border};margin-bottom:14px;`;
+  const tentInp=inp(data.dateTentative,v=>update("dateTentative",v),"","date");
+  const schedInp=inp(data.dateScheduled,v=>{update("dateScheduled",v);schedInp.style.borderColor=v?C.teal:C.border;},"","date");
+  schedInp.style.borderColor=data.dateScheduled?C.teal:C.border;
+  dateGrid.appendChild(fldWrap("Fecha tentativa",tentInp));
+  dateGrid.appendChild(fldWrap("Fecha programada",schedInp));
+  wrap.appendChild(dateGrid);
+
+  // Costs — wrapped in rebuildCosts so it re-renders when surgery changes
+  const costSec=document.createElement("div"); costSec.style.cssText=`padding-top:12px;border-top:1px solid ${C.border};`;
+  const costTitle=document.createElement("div"); costTitle.style.cssText=`font-size:0.66rem;font-weight:800;text-transform:uppercase;color:${C.stone};margin-bottom:7px;`; costTitle.textContent="💰 Cotización"; costSec.appendChild(costTitle);
+  let costTable=document.createElement("div");
+
+  function buildCostTable(){
+    costTable.innerHTML="";
+    costTable.style.cssText=`border:1px solid ${C.border};border-radius:9px;overflow:hidden;`;
+
+    const isFaco=["Faco + LIO","Faco + LIO + Antiangio","Faco + Trabe","Faco + Vitre"].includes(data.surgery);
+
+    const mkRow=(k,label,isWarn)=>{
+      const row=document.createElement("div"); row.style.cssText=`display:grid;grid-template-columns:1fr 110px;border-bottom:1px solid ${C.border};`;
+      const lbl=document.createElement("div"); lbl.style.cssText=`padding:9px 12px;font-size:0.84rem;border-right:1px solid ${C.border};background:${isWarn?"#FEF0E6":C.cream};font-weight:${isWarn?700:500};color:${isWarn?C.orange:C.inkSoft};display:flex;align-items:center;`; lbl.textContent=(isWarn?"⚠️ ":"")+label;
+      const ni=document.createElement("input"); ni.type="number"; ni.placeholder="0.00"; ni.value=data.costs?.[k]||""; ni.style.cssText="border:none;background:white;padding:9px 12px;font-weight:700;text-align:right;font-family:inherit;font-size:0.9rem;outline:none;width:100%;";
+      ni.addEventListener("input",e=>{updateCost(k,e.target.value);refreshTotals();});
+      row.appendChild(lbl); row.appendChild(ni); return row;
+    };
+
+    // Gastos + Anestesiólogo always
+    const noA=!data.costs?.anest||data.costs.anest==="";
+    costTable.appendChild(mkRow("gastos","Gastos",false));
+    costTable.appendChild(mkRow("anest","Anestesiólogo",noA));
+
+    if(isFaco){
+      const lioHdr=document.createElement("div"); lioHdr.style.cssText=`padding:6px 12px;font-size:0.7rem;font-weight:800;text-transform:uppercase;color:${C.teal};background:${C.tealPale};border-bottom:1px solid ${C.border};`; lioHdr.textContent="🔬 Implante según LIO"; costTable.appendChild(lioHdr);
+      [["implantesMonofocal","Monofocal"],["implantesTorico","Tórico"],["implantesMultifocal","Multifocal"]].forEach(([k,label])=>{
+        costTable.appendChild(mkRow(k,label,false));
+      });
+    } else {
+      costTable.appendChild(mkRow("implantes","Implantes",false));
+    }
+
+    // Otros
+    costTable.appendChild(mkRow("otrosAmt","Otros",false));
+    const odRow=document.createElement("div"); odRow.style.cssText=`border-bottom:1px solid ${C.border};`;
+    const odInp=document.createElement("input"); odInp.type="text"; odInp.placeholder="Descripción otros…"; odInp.value=data.costs?.otrosDesc||""; odInp.style.cssText=`width:100%;border:none;background:#FAFAF8;padding:7px 12px;font-size:0.82rem;color:${C.inkSoft};outline:none;box-sizing:border-box;`;
+    odInp.addEventListener("input",e=>updateCost("otrosDesc",e.target.value)); odRow.appendChild(odInp); costTable.appendChild(odRow);
+
+    if(isFaco){
+      // 3 separate total rows
+      const totHdr=document.createElement("div"); totHdr.style.cssText=`padding:6px 12px;font-size:0.7rem;font-weight:800;text-transform:uppercase;color:white;background:${C.ink};border-bottom:1px solid rgba(255,255,255,0.1);`; totHdr.textContent="Totales por tipo de LIO"; costTable.appendChild(totHdr);
+      const totRows={};
+      [["implantesMonofocal","Monofocal"],["implantesTorico","Tórico"],["implantesMultifocal","Multifocal"]].forEach(([k,label])=>{
+        const row=document.createElement("div"); row.style.cssText=`display:grid;grid-template-columns:1fr 110px;border-bottom:1px solid rgba(255,255,255,0.08);background:${C.ink};`;
+        const lbl=document.createElement("div"); lbl.style.cssText=`padding:8px 12px;font-size:0.82rem;font-weight:700;color:rgba(255,255,255,0.6);border-right:1px solid rgba(255,255,255,0.1);`; lbl.textContent="Total "+label;
+        const val=document.createElement("div"); val.style.cssText="padding:8px 12px;font-weight:800;text-align:right;color:#7EC8C8;font-size:0.9rem;";
+        totRows[k]=val; row.appendChild(lbl); row.appendChild(val); costTable.appendChild(row);
+      });
+      function refreshTotals(){
+        const base=(parseFloat(data.costs?.gastos)||0)+(parseFloat(data.costs?.anest)||0)+(parseFloat(data.costs?.otrosAmt)||0);
+        [["implantesMonofocal","Monofocal"],["implantesTorico","Tórico"],["implantesMultifocal","Multifocal"]].forEach(([k])=>{
+          const t=base+(parseFloat(data.costs?.[k])||0);
+          if(totRows[k]) totRows[k].textContent=t>0?(fmtCost(t)||"—"):"—";
+        });
+      }
+      refreshTotals();
+      costTable.refreshTotals=refreshTotals;
+      wrap.addEventListener("input",refreshTotals);
+    } else {
+      // Single total
+      const totalRow=document.createElement("div"); totalRow.style.cssText=`display:grid;grid-template-columns:1fr 110px;background:${C.ink};`;
+      const totalLbl=document.createElement("div"); totalLbl.style.cssText="padding:9px 12px;font-weight:800;color:rgba(255,255,255,0.5);border-right:1px solid rgba(255,255,255,0.1);font-size:0.82rem;"; totalLbl.textContent="TOTAL";
+      const totalVal=document.createElement("div"); totalVal.style.cssText="padding:9px 12px;font-weight:800;text-align:right;color:#7EC8C8;";
+      function refreshTotals(){
+        const t=(parseFloat(data.costs?.gastos)||0)+(parseFloat(data.costs?.anest)||0)+(parseFloat(data.costs?.implantes)||0)+(parseFloat(data.costs?.otrosAmt)||0);
+        totalVal.textContent=fmtCost(t)||"—";
+      }
+      refreshTotals();
+      wrap.addEventListener("input",refreshTotals);
+      totalRow.appendChild(totalLbl); totalRow.appendChild(totalVal); costTable.appendChild(totalRow);
+    }
+  }
+
+  function refreshTotals(){ if(costTable.refreshTotals) costTable.refreshTotals(); }
+
+  buildCostTable();
+  costSec.appendChild(costTable); wrap.appendChild(costSec);
+  return wrap;
+}
+
+// ── QUICK SCHEDULE MODAL ──────────────────────────────────────
+function buildSchedModal(){
+  const r=state.schedModal;
+  const overlay=document.createElement("div");
+  overlay.style.cssText=`position:fixed;inset:0;background:rgba(26,24,20,0.62);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px);`;
+  const box=document.createElement("div");
+  box.style.cssText=`background:white;border-radius:18px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,0.25);overflow:hidden;`;
+
+  const head=document.createElement("div"); head.style.cssText=`background:${C.ink};padding:14px 18px;display:flex;align-items:center;justify-content:space-between;`;
+  head.innerHTML=`<div><div style="color:white;font-weight:800;font-size:1rem;">📅 Programar cirugía</div><div style="color:#C8C0B8;font-size:0.78rem;margin-top:2px;">${r.name}</div></div>`;
+  const xBtn=document.createElement("button"); xBtn.textContent="✕"; xBtn.style.cssText=`background:rgba(255,255,255,0.1);border:none;color:white;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:0.9rem;`; xBtn.addEventListener("click",()=>{state.schedModal=null;render();});
+  head.appendChild(xBtn); box.appendChild(head);
+
+  const body=document.createElement("div"); body.style.cssText="padding:16px;";
+  const activeEyes=r.activeEyes||[];
+  let schedData={};
+  activeEyes.forEach(eye=>{schedData[eye]={date:r.eyes?.[eye]?.dateScheduled||"",time:r.eyes?.[eye]?.timeScheduled||""};});
+
+  if(activeEyes.length===0){
+    body.innerHTML=`<div style="text-align:center;padding:20px;color:${C.stone};">No hay ojos activos en esta cotización.</div>`;
+  } else {
+    activeEyes.forEach(eye=>{
+      const eyeColor=eye==="OD"?C.teal:C.blue;
+      const eyePale=eye==="OD"?C.tealPale:C.bluePale;
+      const eyeWrap=document.createElement("div"); eyeWrap.style.cssText=`margin-bottom:12px;padding:12px;border-radius:10px;background:${eyePale};border:1.5px solid ${eyeColor}33;`;
+      const eyeLbl=document.createElement("div"); eyeLbl.style.cssText=`font-size:0.72rem;font-weight:800;text-transform:uppercase;color:${eyeColor};margin-bottom:8px;`; eyeLbl.textContent=`👁 ${eye} — ${eye==="OD"?"Ojo Derecho":"Ojo Izquierdo"}`;
+      const curSurg=r.eyes?.[eye]?.surgery||"Sin procedimiento definido";
+      const surgInfo=document.createElement("div"); surgInfo.style.cssText=`font-size:0.84rem;font-weight:700;margin-bottom:8px;`; surgInfo.textContent=curSurg;
+      const rl=RISK_LEVELS.find(x=>x.val===(r.eyes?.[eye]?.risk||"standard"))||RISK_LEVELS[0];
+      const rb=document.createElement("span"); rb.style.cssText=`display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:0.7rem;font-weight:700;background:${rl.pale};color:${rl.color};margin-bottom:8px;`; rb.textContent=`${rl.icon} ${rl.label}`;
+      // Date + Time row
+      const dtRow=document.createElement("div"); dtRow.style.cssText="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;";
+      const di=inp(schedData[eye].date,v=>{schedData[eye].date=v;di.style.borderColor=v?C.teal:C.border;},"","date");
+      if(schedData[eye].date) di.style.borderColor=C.teal;
+      const timeInp=document.createElement("input"); timeInp.type="time"; timeInp.value=schedData[eye].time||"";
+      timeInp.style.cssText=`padding:11px 10px;border:1.5px solid ${C.border};border-radius:9px;font-size:16px;color:${C.ink};outline:none;font-weight:700;background:white;width:110px;`;
+      timeInp.addEventListener("change",e=>schedData[eye].time=e.target.value);
+      dtRow.appendChild(di); dtRow.appendChild(timeInp);
+      eyeWrap.appendChild(eyeLbl); eyeWrap.appendChild(surgInfo); eyeWrap.appendChild(rb); eyeWrap.appendChild(dtRow);
+      body.appendChild(eyeWrap);
+    });
+  }
+  box.appendChild(body);
+
+  const foot=document.createElement("div"); foot.style.cssText=`padding:12px 16px 16px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid ${C.border};`;
+  foot.appendChild(btn("Cancelar",()=>{state.schedModal=null;render();},"ghost"));
+  foot.appendChild(btn("💾 Guardar",()=>{
+    const updated={...r,eyes:{...r.eyes}};
+    activeEyes.forEach(eye=>{
+      if(schedData[eye].date) updated.eyes[eye]={...updated.eyes[eye],dateScheduled:schedData[eye].date,timeScheduled:schedData[eye].time||""};
+    });
+    const hasAnyDate=activeEyes.some(eye=>schedData[eye].date);
+    if(hasAnyDate&&updated.status==="pending") updated.status="scheduled";
+    saveRecords(state.records.map(x=>x.id===r.id?updated:x));
+    saveRecordRemote(updated);
+    state.schedModal=null; render();
+  },"primary"));
+  box.appendChild(foot); overlay.appendChild(box);
+  return overlay;
+}
+
+// ── MAIN EDIT MODAL ───────────────────────────────────────────
+function openModal(id){
+  state.modal=id; state.errors={};
+  if(id==="new"){state.form=mkForm();}
+  else{state.form=migrateRecord(state.records.find(x=>x.id===id));}
+  state.modalEyeTab=(state.form.activeEyes||[])[0]||"OD";
+  render();
+}
+function closeModal(){state.modal=null;render();}
+function hasCostZero(eyeData){
+  const v=eyeData?.costs?.gastos;
+  return v===""||v==null||isNaN(v)||parseFloat(v)===0;
+}
+function eyeTotal(c){
+  const base=(parseFloat(c?.gastos)||0)+(parseFloat(c?.anest)||0)+(parseFloat(c?.otrosAmt)||0)+(parseFloat(c?.implantes)||0);
+  const lioVals=["implantesMonofocal","implantesTorico","implantesMultifocal"].map(k=>parseFloat(c?.[k])||0).filter(v=>v>0);
+  // If faco LIO breakdown exists, use max (highest budget) for display
+  const lioExtra=lioVals.length>0?Math.max(...lioVals):0;
+  return base+lioExtra;
+}
+function validateForm(){
+  const e={},f=state.form;
+  if(!f.name.trim())e.name="Nombre obligatorio";
+  if(!f.tel1.trim())e.tel1="Teléfono 1 obligatorio";
+  if(!f.tel2.trim())e.tel2="Teléfono 2 obligatorio";
+  if(!(f.activeEyes||[]).length)e.activeEyes="Selecciona al menos un ojo";
+  (f.activeEyes||[]).forEach(eye=>{
+    if(!f.eyes?.[eye]?.surgery)e[eye+"_s"]="Procedimiento "+eye+" obligatorio";
+    if(hasCostZero(f.eyes?.[eye]))e[eye+"_cost"]="Ojo "+eye+": El campo Gastos es obligatorio y debe ser mayor a $0";
+  });
+  return e;
+}
+function saveRecord(){
+  const e=validateForm(); if(Object.keys(e).length){state.errors=e;render();return;}
+  const rec={...state.form,id:state.modal==="new"?uid():state.modal,createdAt:state.modal==="new"?new Date().toISOString():(state.records.find(r=>r.id===state.modal)?.createdAt||new Date().toISOString())};
+  const next=state.modal==="new"?[rec,...state.records]:state.records.map(r=>r.id===state.modal?rec:r);
+  saveRecords(next); closeModal();
+  saveRecordRemote(rec);
+}
+function deleteRecord(){
+  if(!confirm("¿Eliminar esta cotización?"))return;
+  const id=state.modal;
+  saveRecords(state.records.filter(r=>r.id!==id)); closeModal();
+  deleteRecordRemote(id);
+}
+
+function buildModalDOM(){
+  const overlay=document.createElement("div");
+  overlay.style.cssText=`position:fixed;inset:0;background:rgba(26,24,20,0.62);z-index:200;display:flex;align-items:center;justify-content:center;padding:12px;backdrop-filter:blur(4px);`;
+  const box=document.createElement("div");
+  box.style.cssText=`background:${C.warm};border-radius:20px;width:100%;max-width:760px;max-height:95vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.25);`;
+
+  const mHead=document.createElement("div"); mHead.style.cssText=`padding:14px 18px 11px;border-bottom:1px solid ${C.border};display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:${C.warm};z-index:10;border-radius:20px 20px 0 0;`;
+  const mTitle=document.createElement("span"); mTitle.style.cssText="font-weight:800;font-size:1rem;"; mTitle.textContent=state.modal==="new"?"Nueva Cotización":"Editar Cotización";
+  const xBtn=document.createElement("button"); xBtn.textContent="✕"; xBtn.style.cssText=`width:30px;height:30px;border-radius:50%;border:none;background:${C.cream};cursor:pointer;font-size:0.95rem;color:${C.stone};`; xBtn.addEventListener("click",closeModal);
+  mHead.appendChild(mTitle); mHead.appendChild(xBtn); box.appendChild(mHead);
+
+  const body=document.createElement("div"); body.style.cssText="padding:14px 18px;";
+  const errKeys=Object.keys(state.errors).filter(k=>state.errors[k]);
+  if(errKeys.length>0){
+    const errBox=document.createElement("div"); errBox.style.cssText=`background:#FDEAEA;border:1.5px solid #F0C0C0;border-radius:10px;padding:10px 13px;margin-bottom:12px;`;
+    errBox.innerHTML=`<div style="font-weight:800;color:${C.red};font-size:0.84rem;margin-bottom:4px;">⚠️ Completa los siguientes campos:</div>`;
+    const ul=document.createElement("ul"); ul.style.cssText="margin:0;padding-left:16px;";
+    errKeys.forEach(k=>{const li=document.createElement("li");li.style.cssText=`font-size:0.8rem;color:${C.red};margin-bottom:2px;`;li.textContent=state.errors[k];ul.appendChild(li);});
+    errBox.appendChild(ul); body.appendChild(errBox);
+  }
+
+  // Paciente
+  const secPac=makeSec("👤 Paciente"); body.appendChild(secPac);
+  secPac.appendChild(fldWrap("Nombre completo",inp(state.form.name,v=>state.form.name=v,"Nombre del paciente"),true,state.errors.name));
+  const telGrid=document.createElement("div"); telGrid.style.cssText="display:grid;grid-template-columns:1fr 1fr;gap:9px;";
+  telGrid.appendChild(fldWrap("Teléfono 1",inp(state.form.tel1,v=>state.form.tel1=v,"55 1234 5678","tel"),true,state.errors.tel1));
+  telGrid.appendChild(fldWrap("Teléfono 2",inp(state.form.tel2,v=>state.form.tel2=v,"Número alternativo","tel"),true,state.errors.tel2));
+  secPac.appendChild(telGrid);
+
+  // Ojos
+  const secEyes=makeSec("👁 Ojos a Operar"); body.appendChild(secEyes);
+  if(state.errors.activeEyes){const e=document.createElement("div");e.style.cssText=`font-size:0.77rem;color:${C.red};font-weight:700;margin-bottom:8px;`;e.textContent="⚠️ "+state.errors.activeEyes;secEyes.appendChild(e);}
+  const eyeToggleRow=document.createElement("div"); eyeToggleRow.style.cssText="display:flex;gap:10px;margin-bottom:11px;";
+  ["OD","OI"].forEach(eye=>{
+    const active=(state.form.activeEyes||[]).includes(eye);
+    const eb=document.createElement("button"); eb.style.cssText=`flex:1;padding:12px;border-radius:10px;border:2px solid ${active?C.teal:C.border};background:${active?C.tealPale:"white"};font-weight:800;font-size:0.95rem;cursor:pointer;color:${active?C.teal:C.stone};`;
+    eb.innerHTML=`👁 ${eye}<br><span style="font-size:0.71rem;font-weight:500;">${eye==="OD"?"Ojo derecho":"Ojo izquierdo"}</span>`;
+    eb.addEventListener("click",()=>{
+      const cur=state.form.activeEyes||[];
+      state.form.activeEyes=cur.includes(eye)?cur.filter(e=>e!==eye):[...cur,eye].sort();
+      if(state.form.activeEyes.length>0)state.modalEyeTab=state.form.activeEyes[0];
+      render();
+    });
+    eyeToggleRow.appendChild(eb);
+  });
+  secEyes.appendChild(eyeToggleRow);
+  if((state.form.activeEyes||[]).length===2){
+    secEyes.appendChild(fldWrap("¿Con cuál ojo se inicia?",sel(state.form.eyeFirst,v=>state.form.eyeFirst=v,[["","Por definir"],["OD","Inicia OD"],["OI","Inicia OI"]])));
+  }
+  if((state.form.activeEyes||[]).length>0){
+    const eyes=state.form.activeEyes||[];
+    if(eyes.length>1){
+      const tabRow=document.createElement("div"); tabRow.style.cssText=`display:flex;gap:2px;margin-bottom:10px;border-bottom:2px solid ${C.border};`;
+      eyes.forEach(eye=>{
+        const active=state.modalEyeTab===eye;
+        const tb=document.createElement("button"); tb.style.cssText=`padding:8px 16px;font-size:0.83rem;font-weight:${active?800:500};color:${active?(eye==="OD"?C.teal:C.blue):C.stone};background:none;border:none;border-bottom:3px solid ${active?(eye==="OD"?C.teal:C.blue):"transparent"};cursor:pointer;`;
+        tb.textContent=`👁 ${eye} ${eye==="OD"?"(Derecho)":"(Izquierdo)"}`;
+        tb.addEventListener("click",()=>{state.modalEyeTab=eye;render();});
+        tabRow.appendChild(tb);
+      });
+      secEyes.appendChild(tabRow);
+      const ae=state.modalEyeTab;
+      secEyes.appendChild(makeEyePanel(state.form.eyes[ae]||mkEye(),d=>{state.form.eyes[ae]=d;},state.errors[ae+"_s"]));
+    } else {
+      const eye=eyes[0];
+      secEyes.appendChild(makeEyePanel(state.form.eyes[eye]||mkEye(),d=>{state.form.eyes[eye]=d;},state.errors[eye+"_s"]));
+    }
+  }
+
+  // Estado
+  const secEst=makeSec("📋 Estado"); body.appendChild(secEst);
+  secEst.appendChild(fldWrap("Estado",sel(state.form.status,v=>state.form.status=v,[["pending","⏳ Pendiente"],["scheduled","📅 Programada"],["done","✅ Operado/a"]])));
+
+  // Notas
+  const secNot=makeSec("📝 Notas"); body.appendChild(secNot);
+  const ta=document.createElement("textarea"); ta.value=state.form.notes||""; ta.placeholder="Alergias, medicamentos, indicaciones especiales…"; ta.style.cssText=`width:100%;padding:10px 12px;border:1.5px solid ${C.border};border-radius:9px;font-size:0.87rem;color:${C.ink};background:white;outline:none;resize:vertical;min-height:65px;box-sizing:border-box;font-family:inherit;`;
+  ta.addEventListener("input",e=>state.form.notes=e.target.value);
+  secNot.appendChild(ta); box.appendChild(body);
+
+  const mFoot=document.createElement("div"); mFoot.style.cssText=`padding:11px 18px 16px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid ${C.border};`;
+  if(state.modal!=="new")mFoot.appendChild(btn("🗑 Eliminar",deleteRecord,"danger"));
+  mFoot.appendChild(btn("Cancelar",closeModal,"outline"));
+  mFoot.appendChild(btn("Guardar",saveRecord,"primary"));
+  box.appendChild(mFoot); overlay.appendChild(box);
+  return overlay;
+}
+
+// ── DAY VIEW ──────────────────────────────────────────────────
+function buildDayCard(r,selDate,index){
+  const rl_OD=RISK_LEVELS.find(x=>x.val===(r.eyes?.OD?.risk||"standard"))||RISK_LEVELS[0];
+  const rl_OI=RISK_LEVELS.find(x=>x.val===(r.eyes?.OI?.risk||"standard"))||RISK_LEVELS[0];
+  const eyes=(r.activeEyes||[]).filter(eye=>r.eyes?.[eye]?.dateScheduled===selDate);
+  // Dominant risk (worst)
+  const riskOrder={complex:2,medium:1,standard:0};
+  const dominantRl=eyes.reduce((worst,eye)=>{const rl=RISK_LEVELS.find(x=>x.val===(r.eyes?.[eye]?.risk||"standard"))||RISK_LEVELS[0];return riskOrder[rl.val]>riskOrder[worst.val]?rl:worst;},RISK_LEVELS[0]);
+
+  const card=document.createElement("div"); card.className="day-card"; card.style.cssText=`background:white;border-radius:14px;border:2px solid ${dominantRl.color}33;overflow:hidden;margin-bottom:14px;`;
+  const cardHead=document.createElement("div"); cardHead.style.cssText=`background:${dominantRl.pale};padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;border-bottom:1.5px solid ${dominantRl.color}22;`;
+  const nameBox=document.createElement("div"); nameBox.style.cssText="display:flex;align-items:center;gap:12px;";
+  const num=document.createElement("div"); num.style.cssText=`width:32px;height:32px;border-radius:50%;background:${dominantRl.color};color:white;display:flex;align-items:center;justify-content:center;font-weight:800;flex-shrink:0;`; num.textContent=index+1;
+  const nameInfo=document.createElement("div");
+  nameInfo.innerHTML=`<div style="font-weight:800;font-size:1.05rem;">${r.name}</div><div style="font-size:0.75rem;color:${C.stone};">${[r.tel1,r.tel2].filter(Boolean).join(" · ")}</div>`;
+  nameBox.appendChild(num); nameBox.appendChild(nameInfo);
+  const badges=document.createElement("div"); badges.style.cssText="display:flex;gap:6px;flex-wrap:wrap;align-items:center;";
+  eyes.forEach(eye=>{
+    const rl=eye==="OD"?rl_OD:rl_OI;
+    badges.innerHTML+=`<span style="padding:3px 9px;border-radius:20px;font-size:0.72rem;font-weight:800;background:${eye==="OD"?C.tealPale:C.bluePale};color:${eye==="OD"?C.teal:C.blue};">👁 ${eye}</span>`;
+    const rb=document.createElement("span"); rb.style.cssText=`display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:0.71rem;font-weight:700;background:${rl.pale};color:${rl.color};`; rb.textContent=`${rl.icon} ${rl.label}`; badges.appendChild(rb);
+  });
+  if(r.eyeFirst&&eyes.length>1) badges.innerHTML+=`<span style="font-size:0.72rem;color:${C.stone};">inicia ${r.eyeFirst}</span>`;
+  // Show time if set
+  const times=eyes.map(eye=>r.eyes?.[eye]?.timeScheduled).filter(Boolean);
+  const displayTime=times[0]||"";
+  if(displayTime) badges.innerHTML+=`<span style="background:#E8F4F5;color:${C.teal};border-radius:8px;padding:3px 9px;font-size:0.8rem;font-weight:800;">⏰ ${displayTime}</span>`;
+  // Drag handle
+  const dragHandle=document.createElement("div"); dragHandle.innerHTML="⠿"; dragHandle.style.cssText=`font-size:1.2rem;color:#C8C0B8;cursor:grab;padding:0 6px;user-select:none;flex-shrink:0;`; dragHandle.title="Arrastrar para reordenar";
+  dragHandle.setAttribute("draggable","false"); // handle is visual only, card is draggable
+  cardHead.appendChild(nameBox); cardHead.appendChild(badges); cardHead.appendChild(dragHandle); card.appendChild(cardHead);
+
+  const eyeGrid=document.createElement("div"); eyeGrid.style.cssText="padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;";
+  eyes.forEach(eye=>{
+    const ed=r.eyes?.[eye]||{}; const c=ed.costs||{}; const na=!c.anest||c.anest==="";
+    const et=eyeTotal(c);
+    const rl=RISK_LEVELS.find(x=>x.val===(ed.risk||"standard"))||RISK_LEVELS[0];
+    const ep=document.createElement("div"); ep.style.cssText=`background:${C.cream};border-radius:10px;padding:12px 14px;border:1px solid ${eye==="OD"?C.tealPale:C.bluePale};`;
+    ep.innerHTML=`<div style="font-size:0.68rem;font-weight:800;text-transform:uppercase;color:${eye==="OD"?C.teal:C.blue};margin-bottom:6px;">👁 ${eye} — ${eye==="OD"?"Ojo Derecho":"Ojo Izquierdo"}</div>`;
+    const rb2=document.createElement("div"); rb2.style.cssText="margin-bottom:6px;"; rb2.appendChild(riskBadge(ed.risk||"standard")); ep.appendChild(rb2);
+    const surgDiv=document.createElement("div"); surgDiv.style.cssText="font-weight:700;margin-bottom:4px;font-size:0.9rem;"; surgDiv.textContent=ed.surgery||"Sin definir"; ep.appendChild(surgDiv);
+    (ed.surgeryPlus||[]).forEach(p=>{const s=document.createElement("span");s.style.cssText=`display:inline-block;background:${C.tealPale};color:${C.teal};border-radius:4px;padding:1px 7px;font-size:0.72rem;font-weight:700;margin-right:4px;margin-bottom:4px;`;s.textContent="+ "+p;ep.appendChild(s);});
+    if(ed.lioNeeded){
+      const lio=document.createElement("div");lio.style.cssText=`margin-top:6px;padding:8px 10px;background:#E8F0FA;border-radius:7px;font-size:0.82rem;color:${C.blue};font-weight:600;line-height:1.6;`;
+      const lines=[];
+      let line1=`🔬 ${ed.lioType||"—"}`;
+      if(ed.lioPower) line1+=` · ${fmtPower(ed.lioPower)}D`;
+      lines.push(line1);
+      const isToric=TORIC_TYPES.includes(ed.lioType);
+      const isMulti=MULTIFOCAL_TYPES.includes(ed.lioType);
+      if(isToric&&(ed.lioCyl||ed.lioAxis)){
+        let cylLine="⊕ Cil:";
+        if(ed.lioCyl) cylLine+=` ${fmtPower(ed.lioCyl)}D`;
+        if(ed.lioAxis) cylLine+=` · Eje: ${ed.lioAxis}°`;
+        lines.push(cylLine);
+      }
+      if(isMulti&&ed.lioAdd) lines.push(`➕ Adición: ${ed.lioAdd}D`);
+      if(ed.lioNotes) lines.push(`📦 ${ed.lioNotes}`);
+      lio.textContent=lines.join("\n");
+      lio.style.whiteSpace="pre-line";
+      ep.appendChild(lio);
+      if(ed.lioType==="Premium personalizado"){
+        const rem=document.createElement("div");
+        rem.style.cssText=`margin-top:6px;padding:8px 10px;background:#FDF4E3;border:1.5px solid #E8C97A;border-radius:7px;font-size:0.82rem;color:#B07D2A;font-weight:700;`;
+        rem.textContent="⚠️ Recordar marcaje pre-quirúrgico";
+        ep.appendChild(rem);
+      }
+    }
+    const costs=document.createElement("div"); costs.className="print-costs"; costs.style.cssText=`margin-top:10px;padding-top:8px;border-top:1px solid ${C.border};`;
+    const isFacoCard=["Faco + LIO","Faco + LIO + Antiangio","Faco + Trabe","Faco + Vitre"].includes(ed.surgery);
+    const base=(parseFloat(c.gastos)||0)+(parseFloat(c.anest)||0)+(parseFloat(c.otrosAmt)||0);
+    if(isFacoCard){
+      // Base costs
+      [["Gastos",c.gastos],["Anestesiólogo",c.anest]].forEach(([lb,v])=>{
+        const row=document.createElement("div"); row.style.cssText="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:2px;";
+        row.innerHTML=`<span style="color:${lb==="Anestesiólogo"&&na?C.orange:C.stone};">${lb==="Anestesiólogo"&&na?"⚠️ ":""}${lb}</span><span style="font-weight:700;">${fmtCost(v)||"—"}</span>`; costs.appendChild(row);
+      });
+      // 3 LIO subtotals
+      const lioHdr=document.createElement("div"); lioHdr.style.cssText=`font-size:0.68rem;font-weight:800;text-transform:uppercase;color:${C.teal};margin:6px 0 4px;`; lioHdr.textContent="Presupuesto según LIO:"; costs.appendChild(lioHdr);
+      [["Monofocal",c.implantesMonofocal],["Tórico",c.implantesTorico],["Multifocal",c.implantesMultifocal]].forEach(([lb,v])=>{
+        if(!v||parseFloat(v)===0) return;
+        const tot2=base+(parseFloat(v)||0);
+        const row=document.createElement("div"); row.style.cssText=`display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;padding:4px 8px;background:${C.tealPale};border-radius:6px;`;
+        row.innerHTML=`<span style="font-weight:700;color:${C.teal};">Total ${lb}</span><span style="font-weight:800;color:${C.teal};">${fmtCost(tot2)||"—"}</span>`; costs.appendChild(row);
+      });
+    } else {
+      [["Gastos",c.gastos],["Anestesiólogo",c.anest],["Implantes",c.implantes]].forEach(([lb,v])=>{
+        const row=document.createElement("div"); row.style.cssText="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:2px;";
+        row.innerHTML=`<span style="color:${lb==="Anestesiólogo"&&na?C.orange:C.stone};">${lb==="Anestesiólogo"&&na?"⚠️ ":""}${lb}</span><span style="font-weight:700;">${fmtCost(v)||"—"}</span>`; costs.appendChild(row);
+      });
+      const tot=document.createElement("div"); tot.style.cssText=`display:flex;justify-content:space-between;font-size:0.82rem;padding-top:5px;border-top:1px solid ${C.border};margin-top:3px;`; tot.innerHTML=`<span style="font-weight:800;">Total</span><span style="font-weight:800;color:${C.teal};">${fmtCost(et)||"—"}</span>`; costs.appendChild(tot);
+    }
+    ep.appendChild(costs);
+    eyeGrid.appendChild(ep);
+  });
+  card.appendChild(eyeGrid);
+  if(r.notes){const nf=document.createElement("div");nf.style.cssText=`padding:8px 16px 12px;border-top:1px solid ${C.border};`;nf.innerHTML=`<span style="font-size:0.75rem;color:${C.stone};font-weight:700;">Notas: </span><span style="font-size:0.78rem;">${r.notes}</span>`;card.appendChild(nf);}
+  return card;
+}
+
+function buildDailyView(){
+  const wrap=document.createElement("div");
+  let selDate=toStr();
+  function renderDay(){
+    wrap.innerHTML="";
+
+    const topRow=document.createElement("div"); topRow.style.cssText="display:flex;gap:10px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap;";
+    const dateFld=document.createElement("div"); dateFld.style.flex="1";
+    const di=inp(selDate,v=>{selDate=v;renderDay();},"","date",{maxWidth:"220px"});
+    dateFld.appendChild(fldWrap("Fecha",di));
+    topRow.appendChild(dateFld);
+    const printBtn=btn("🖨️ Imprimir",()=>{
+      const[py,pm,pd]=selDate.split("-");
+      const pdays=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+      const pdt=new Date(parseInt(py),parseInt(pm)-1,parseInt(pd));
+      const live2=applyAuto(state.records);
+      const pts2=live2.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye])));
+      if(!pts2.length){alert("Sin pacientes programados para este día.");return;}
+
+      function cardHTML(r,i){
+        const eyes=(r.activeEyes||[]).filter(eye=>r.eyes?.[eye]?.dateScheduled===selDate);
+        const riskOrder={complex:2,medium:1,standard:0};
+        const dominantRl=eyes.reduce((w,eye)=>{const rl=RISK_LEVELS.find(x=>x.val===(r.eyes?.[eye]?.risk||"standard"))||RISK_LEVELS[0];return riskOrder[rl.val]>riskOrder[w.val]?rl:w;},RISK_LEVELS[0]);
+        let h=`<div style="border:2px solid ${dominantRl.color}44;border-radius:10px;margin-bottom:14px;page-break-inside:avoid;">`;
+        h+=`<div style="background:${dominantRl.pale};padding:10px 14px;border-bottom:1px solid ${dominantRl.color}22;display:flex;align-items:center;gap:10px;">
+          <div style="background:${dominantRl.color};color:white;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:0.85rem;">${i+1}</div>
+          <div style="flex:1;">
+            <div style="font-weight:800;font-size:1rem;">${r.name}</div>
+            <div style="font-size:0.78rem;color:#666;">${r.tel1}${r.tel2?" · "+r.tel2:""}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">`;
+        eyes.forEach(eye=>{
+          const rl=RISK_LEVELS.find(x=>x.val===(r.eyes?.[eye]?.risk||"standard"))||RISK_LEVELS[0];
+          h+=`<span style="background:${rl.pale};color:${rl.color};border-radius:20px;padding:3px 9px;font-size:0.72rem;font-weight:700;">👁 ${eye} ${rl.icon} ${rl.label}</span>`;
+        });
+        h+=`</div></div>`;
+        h+=`<div style="padding:12px 14px;display:grid;grid-template-columns:${eyes.length>1?"1fr 1fr":"1fr"};gap:12px;">`;
+        eyes.forEach(eye=>{
+          const ed=r.eyes?.[eye]||{};
+          const rl=RISK_LEVELS.find(x=>x.val===(ed.risk||"standard"))||RISK_LEVELS[0];
+          h+=`<div style="background:#F7F5F2;border-radius:8px;padding:10px 12px;">
+            <div style="font-size:0.7rem;font-weight:800;color:#0D6B72;text-transform:uppercase;margin-bottom:6px;">👁 ${eye} — ${eye==="OD"?"OJO DERECHO":"OJO IZQUIERDO"}</div>
+            <div style="margin-bottom:6px;"><span style="background:${rl.pale};color:${rl.color};border-radius:10px;padding:2px 8px;font-size:0.7rem;font-weight:700;">${rl.icon} ${rl.label}</span></div>
+            <div style="font-weight:800;font-size:0.95rem;margin-bottom:4px;">${ed.surgery||"—"}</div>`;
+          if((ed.surgeryPlus||[]).length) ed.surgeryPlus.forEach(p=>{h+=`<span style="background:#E8F4F5;color:#0D6B72;border-radius:4px;padding:1px 7px;font-size:0.72rem;font-weight:700;margin-right:4px;">+ ${p}</span>`;});
+          if(ed.lioNeeded){
+            h+=`<div style="margin-top:6px;padding:7px 9px;background:#E8F0FA;border-radius:7px;font-size:0.8rem;color:#1A5FA8;font-weight:600;line-height:1.7;">🔬 ${ed.lioType||"—"}`;
+            if(ed.lioPower) h+=` · ${fmtPower(ed.lioPower)}D`;
+            if(TORIC_TYPES.includes(ed.lioType)&&(ed.lioCyl||ed.lioAxis)) h+=`<br>⊕ Cil: ${ed.lioCyl?fmtPower(ed.lioCyl)+"D":"—"} · Eje: ${ed.lioAxis||"?"}°`;
+            if(MULTIFOCAL_TYPES.includes(ed.lioType)&&ed.lioAdd) h+=`<br>➕ Adición: ${ed.lioAdd}D`;
+            if(ed.lioNotes) h+=`<br>📦 ${ed.lioNotes}`;
+            h+=`</div>`;
+            if(ed.lioType==="Premium personalizado") h+=`<div style="margin-top:5px;padding:6px 9px;background:#FDF4E3;border:1.5px solid #E8C97A;border-radius:7px;font-size:0.78rem;color:#B07D2A;font-weight:700;">⚠️ Recordar marcaje pre-quirúrgico</div>`;
+          }
+          if(ed.dateScheduled) h+=`<div style="margin-top:6px;font-size:0.78rem;color:#555;">📅 ${fmtDL(ed.dateScheduled)}${ed.timeScheduled?` · ⏰ ${ed.timeScheduled}`:""}</div>`;
+          h+=`</div>`;
+        });
+        h+=`</div>`;
+        if(r.notes) h+=`<div style="padding:8px 14px 10px;border-top:1px solid #E5DED6;font-size:0.78rem;color:#555;"><strong>Notas:</strong> ${r.notes}</div>`;
+        h+=`</div>`;
+        return h;
+      }
+
+      let cardsHTML="";
+      pts2.forEach((r,i)=>{cardsHTML+=cardHTML(r,i);});
+
+      openPrint(`
+        <div style="margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #333;font-family:-apple-system,sans-serif;">
+          <div style="font-weight:800;font-size:1.15rem;">COE Morelia</div>
+          <div style="font-size:0.85rem;color:#666;margin-top:2px;">Hospital Victoria 1206 Piso 12, Av Acueducto 2800</div>
+          <div style="font-weight:700;color:#0D6B72;margin-top:4px;font-size:1rem;">Programación Quirúrgica — ${pdays[pdt.getDay()]}, ${fmtDL(selDate)}</div>
+          <div style="font-size:0.8rem;color:#888;margin-top:2px;">${pts2.length} paciente${pts2.length!==1?"s":""} programado${pts2.length!==1?"s":""}</div>
+        </div>
+        ${cardsHTML}
+        <div style="margin-top:20px;padding:14px 16px;background:#0D6B72;border-radius:8px;text-align:center;font-family:-apple-system,sans-serif;">
+          <div style="color:white;font-size:1.05rem;font-weight:900;">Para programación llame al 443 416 2267</div>
+        </div>
+      `);
+    },"outline");
+    topRow.appendChild(printBtn);
+    wrap.appendChild(topRow);
+    const[y,m,day]=selDate.split("-"); const days=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"]; const dt=new Date(parseInt(y),parseInt(m)-1,parseInt(day));
+    const header=document.createElement("div"); header.style.cssText=`margin-bottom:16px;padding-bottom:12px;border-bottom:2px solid ${C.border};`;
+    header.innerHTML=`<div style="font-weight:800;font-size:1.05rem;">COE Morelia</div><div style="font-size:0.85rem;color:${C.stone};">Hospital Victoria 1206 Piso 12, Av Acueducto 2800</div>`;
+    const titleD=document.createElement("div"); titleD.style.cssText=`font-weight:700;color:${C.teal};margin-top:4px;`; titleD.textContent=`Programación Quirúrgica — ${days[dt.getDay()]}, ${fmtDL(selDate)}`;
+    header.appendChild(titleD);
+    const live=applyAuto(state.records);
+    const pts=live.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye]))).sort((a,b)=>{
+      const tA=(a.activeEyes||[]).map(e=>a.eyes?.[e]?.timeScheduled).filter(Boolean)[0]||"99:99";
+      const tB=(b.activeEyes||[]).map(e=>b.eyes?.[e]?.timeScheduled).filter(Boolean)[0]||"99:99";
+      return tA.localeCompare(tB);
+    });
+    const countD=document.createElement("div"); countD.style.cssText=`font-size:0.8rem;color:${C.stone};margin-top:2px;`; countD.textContent=`${pts.length} paciente${pts.length!==1?"s":""} programado${pts.length!==1?"s":""}`;
+    header.appendChild(countD); wrap.appendChild(header);
+    if(pts.length===0){const empty=document.createElement("div");empty.style.cssText=`text-align:center;padding:44px 24px;color:${C.stone};`;empty.innerHTML=`<div style="font-size:2.5rem;margin-bottom:10px;opacity:0.3;">📅</div><div style="font-weight:700;">Sin cirugías para este día</div>`;wrap.appendChild(empty);return;}
+    // Drag-to-reorder
+    const dayOrder=JSON.parse(localStorage.getItem("coe-day-order-"+selDate)||"null");
+    let orderedPts=pts.slice();
+    if(dayOrder){
+      const ordered=[];
+      dayOrder.forEach(id=>{const r=orderedPts.find(x=>x.id===id);if(r)ordered.push(r);});
+      orderedPts.forEach(r=>{if(!ordered.find(x=>x.id===r.id))ordered.push(r);});
+      orderedPts=ordered;
+    }
+    let dragSrcId=null;
+    orderedPts.forEach((r,i)=>{
+      const card=buildDayCard(r,selDate,i);
+      card.setAttribute("draggable","true");
+      card.dataset.recid=r.id;
+      card.style.cursor="grab";
+      card.addEventListener("dragstart",e=>{dragSrcId=r.id;card.style.opacity="0.5";e.dataTransfer.effectAllowed="move";});
+      card.addEventListener("dragend",()=>{card.style.opacity="1";});
+      card.addEventListener("dragover",e=>{e.preventDefault();e.dataTransfer.dropEffect="move";card.style.outline=`2px dashed ${C.teal}`;});
+      card.addEventListener("dragleave",()=>{card.style.outline="none";});
+      card.addEventListener("drop",e=>{
+        e.preventDefault(); card.style.outline="none";
+        if(dragSrcId===r.id) return;
+        // Reorder in DOM
+        const allCards=[...wrap.querySelectorAll("[data-recid]")];
+        const ids=allCards.map(c=>c.dataset.recid);
+        const fromIdx=ids.indexOf(dragSrcId); const toIdx=ids.indexOf(r.id);
+        if(fromIdx<0||toIdx<0) return;
+        const newIds=[...ids]; newIds.splice(fromIdx,1); newIds.splice(toIdx,0,dragSrcId);
+        localStorage.setItem("coe-day-order-"+selDate,JSON.stringify(newIds));
+        renderDay();
+      });
+      wrap.appendChild(card);
+    });
+  }
+  renderDay(); return wrap;
+}
+
+// ── HISTORY VIEW ──────────────────────────────────────────────
+function buildHistoryView(){
+  const wrap=document.createElement("div");
+  const live=applyAuto(state.records);
+
+  // Gather all past scheduled dates
+  const dayMap={};
+  live.forEach(r=>{
+    (r.activeEyes||[]).forEach(eye=>{
+      const d=r.eyes?.[eye]?.dateScheduled;
+      if(d&&d<=toStr()&&!hasCostZero(r.eyes?.[eye])){
+        if(!dayMap[d])dayMap[d]=[];
+        dayMap[d].push({r,eye});
+      }
+    });
+  });
+
+  const sortedDays=Object.keys(dayMap).sort((a,b)=>b.localeCompare(a));
+
+  if(sortedDays.length===0){
+    wrap.innerHTML=`<div style="text-align:center;padding:44px 24px;color:${C.stone};"><div style="font-size:2.5rem;margin-bottom:10px;opacity:0.3;">📂</div><div style="font-weight:700;">Sin historial aún</div><div style="font-size:0.85rem;margin-top:4px;">Aquí aparecerán los días quirúrgicos pasados.</div></div>`;
+    return wrap;
+  }
+
+  const title=document.createElement("div"); title.style.cssText=`font-size:0.66rem;font-weight:800;text-transform:uppercase;letter-spacing:0.12em;color:${C.stone};margin-bottom:12px;`; title.textContent=`${sortedDays.length} día${sortedDays.length!==1?"s":""} en historial`;
+  wrap.appendChild(title);
+
+  sortedDays.forEach(d=>{
+    const entries=dayMap[d];
+    // Unique patients for this day
+    const patIds=[...new Set(entries.map(e=>e.r.id))];
+    const patients=patIds.map(id=>live.find(r=>r.id===id));
+    const[y,m,day]=d.split("-"); const days2=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"]; const dt=new Date(parseInt(y),parseInt(m)-1,parseInt(day));
+    const isExpanded=!!state.expandedDays[d];
+
+    const dayWrap=document.createElement("div"); dayWrap.style.cssText=`border-radius:13px;overflow:hidden;margin-bottom:10px;border:1.5px solid ${C.border};`;
+
+    // Day header (clickable)
+    const dayHead=document.createElement("div"); dayHead.style.cssText=`background:white;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;`;
+    const dayLeft=document.createElement("div");
+    dayLeft.innerHTML=`<div style="font-weight:800;font-size:0.95rem;">${days2[dt.getDay()]}, ${fmtDL(d)}</div><div style="font-size:0.78rem;color:${C.stone};margin-top:2px;">${patIds.length} paciente${patIds.length!==1?"s":""} · ${entries.length} ojo${entries.length!==1?"s":""}`;
+    // Mini risk summary
+    const risksDiv=document.createElement("span");
+    entries.forEach(({r,eye})=>{const rl=RISK_LEVELS.find(x=>x.val===(r.eyes?.[eye]?.risk||"standard"))||RISK_LEVELS[0];risksDiv.textContent+=rl.icon;});
+    dayLeft.querySelector("div:last-child").appendChild(document.createTextNode(" ")); dayLeft.querySelector("div:last-child").appendChild(risksDiv);
+
+    const chevron=document.createElement("div"); chevron.style.cssText=`font-size:1.1rem;color:${C.stone};transition:transform 0.2s;transform:${isExpanded?"rotate(90deg)":"rotate(0deg)"};`; chevron.textContent="›";
+    dayHead.appendChild(dayLeft); dayHead.appendChild(chevron);
+    dayHead.addEventListener("click",()=>{state.expandedDays[d]=!state.expandedDays[d];render();});
+    dayWrap.appendChild(dayHead);
+
+    if(isExpanded){
+      const detail=document.createElement("div"); detail.style.cssText=`background:${C.cream};padding:14px;border-top:1.5px solid ${C.border};`;
+      patients.forEach((r,i)=>detail.appendChild(buildDayCard(r,d,i)));
+      dayWrap.appendChild(detail);
+    }
+    wrap.appendChild(dayWrap);
+  });
+  return wrap;
+}
+
+// ── MAIN RENDER ───────────────────────────────────────────────
+function render(){
+  const app=document.getElementById("app"); app.innerHTML="";
+  const live=applyAuto(state.records);
+  const stats={
+    total:state.records.length,
+    pending:live.filter(r=>r.status==="pending").length,
+    done:live.filter(r=>r.status==="done").length,
+    noAnest:live.filter(r=>r.status!=="done"&&(r.activeEyes||[]).some(e=>!r.eyes?.[e]?.costs?.anest)).length
+  };
+
+  // Header
+  const header=document.createElement("div"); header.className="app-header"; header.style.cssText=`background:${C.ink};color:white;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;`;
+  const syncIcon=state.syncing?'<span style="font-size:0.65rem;color:#7EC8C8;font-weight:400;margin-left:4px;">⟳ sincronizando…</span>':state.syncError?'<span style="font-size:0.65rem;color:#C05C10;font-weight:400;margin-left:4px;">⚠ sin conexión</span>':'<span style="font-size:0.65rem;color:#7EC8C8;font-weight:400;margin-left:4px;">☁</span>';
+  const titleEl=document.createElement("div"); titleEl.style.cssText="font-weight:800;font-size:1rem;"; titleEl.innerHTML=`👁 COE <span style="color:#7EC8C8;">·</span> Cirugías ${syncIcon}`;
+  const statsBox=document.createElement("div"); statsBox.style.cssText="display:flex;gap:14px;";
+  [["total","Total","#C8C0B8"],["pending","Pend.","#B07D2A"],["noAnest","Anest.","#C05C10"],["done","Op.","#7EC8C8"]].forEach(([k,l,c])=>{
+    const s=document.createElement("div"); s.style.textAlign="center";
+    s.innerHTML=`<div style="font-size:1rem;font-weight:800;color:${c};line-height:1;">${stats[k]}</div><div style="font-size:0.55rem;color:#C8C0B8;text-transform:uppercase;">${l}</div>`;
+    statsBox.appendChild(s);
+  });
+  const backupBtn=document.createElement("button");
+  backupBtn.title="Backup semanal por email";
+  backupBtn.textContent="📤";
+  backupBtn.style.cssText="background:none;border:1px solid #555;color:#C8C0B8;border-radius:8px;padding:5px 9px;font-size:1rem;cursor:pointer;margin-left:6px;";
+  backupBtn.addEventListener("click",()=>weeklyBackup(true));
+
+  // Export JSON — descarga todos los datos
+  const exportBtn=document.createElement("button");
+  exportBtn.title="Exportar JSON (respaldo)";
+  exportBtn.textContent="⬇️";
+  exportBtn.style.cssText="background:none;border:1px solid #555;color:#C8C0B8;border-radius:8px;padding:5px 9px;font-size:1rem;cursor:pointer;margin-left:6px;";
+  exportBtn.addEventListener("click",()=>{
+    const data=JSON.stringify(state.records,null,2);
+    const blob=new Blob([data],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url;
+    a.download=`COE_backup_${new Date().toISOString().split("T")[0]}.json`;
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},1000);
+  });
+
+  // Import JSON — restaura desde archivo
+  const importBtn=document.createElement("button");
+  importBtn.title="Importar JSON (restaurar)";
+  importBtn.textContent="⬆️";
+  importBtn.style.cssText="background:none;border:1px solid #555;color:#C8C0B8;border-radius:8px;padding:5px 9px;font-size:1rem;cursor:pointer;margin-left:6px;";
+  importBtn.addEventListener("click",()=>{
+    const inp=document.createElement("input"); inp.type="file"; inp.accept=".json";
+    inp.addEventListener("change",async e=>{
+      const file=e.target.files[0]; if(!file) return;
+      try{
+        const text=await file.text();
+        const imported=JSON.parse(text);
+        if(!Array.isArray(imported)) throw new Error("Formato inválido");
+        if(!confirm(`¿Importar ${imported.length} registros? Esto REEMPLAZARÁ todos los datos actuales.`)) return;
+        saveRecords(imported);
+        importBtn.textContent="⟳"; importBtn.disabled=true;
+        for(const rec of imported){ await sbSave(rec); }
+        importBtn.textContent="⬆️"; importBtn.disabled=false;
+        alert(`✅ ${imported.length} registros importados y sincronizados.`);
+        render();
+      }catch(err){ alert("Error al importar: "+err.message); }
+    });
+    inp.click();
+  });
+
+  // Sync all local → Supabase
+  const syncBtn=document.createElement("button");
+  syncBtn.title="Subir todos los registros locales a Supabase";
+  syncBtn.textContent="☁️";
+  syncBtn.style.cssText="background:none;border:1px solid #7EC8C8;color:#7EC8C8;border-radius:8px;padding:5px 9px;font-size:1rem;cursor:pointer;margin-left:6px;";
+  syncBtn.addEventListener("click",async()=>{
+    if(!state.records.length){alert("No hay registros locales.");return;}
+    if(!confirm(`¿Subir ${state.records.length} registros a Supabase?`))return;
+    syncBtn.textContent="⟳"; syncBtn.disabled=true;
+    for(const rec of state.records){ await sbSave(rec); }
+    syncBtn.textContent="☁️"; syncBtn.disabled=false;
+    alert(`✅ ${state.records.length} registros sincronizados con Supabase.`);
+  });
+
+  const rightSide=document.createElement("div"); rightSide.style.cssText="display:flex;align-items:center;";
+  // Refresh button — prominent, forces full sync from Supabase
+  const refreshBtn=document.createElement("button");
+  refreshBtn.title="Actualizar desde Supabase";
+  refreshBtn.textContent="🔄 Actualizar";
+  refreshBtn.style.cssText="background:#7EC8C8;color:#1A1814;border:none;border-radius:8px;padding:7px 13px;font-size:0.85rem;font-weight:900;cursor:pointer;margin-left:8px;white-space:nowrap;letter-spacing:0.01em;";
+  refreshBtn.addEventListener("click",async()=>{
+    refreshBtn.textContent="⟳ Cargando…";
+    refreshBtn.disabled=true;
+    refreshBtn.style.opacity="0.7";
+    const remote=await sbLoad();
+    if(remote.length>0){
+      state.records=applyAuto(remote);
+      localStorage.setItem("oftalmo-v3",JSON.stringify(state.records));
+    }
+    refreshBtn.textContent="🔄 Actualizar";
+    refreshBtn.disabled=false;
+    refreshBtn.style.opacity="1";
+    render();
+  });
+
+  rightSide.appendChild(statsBox);
+  rightSide.appendChild(refreshBtn);
+  rightSide.appendChild(syncBtn);
+  rightSide.appendChild(exportBtn);
+  rightSide.appendChild(importBtn);
+  rightSide.appendChild(backupBtn);
+  header.appendChild(titleEl); header.appendChild(rightSide); app.appendChild(header);
+
+  // Tabs
+  const tabs=document.createElement("div"); tabs.className="app-tabs"; tabs.style.cssText=`display:flex;background:white;border-bottom:1px solid ${C.border};padding:0 14px;gap:2px;overflow-x:auto;`;
+  [["list","📋 Cotizaciones"],["day","🗓 Día"],["history","📂 Historial"]].forEach(([k,l])=>{
+    const tb=document.createElement("button"); tb.style.cssText=`padding:12px 14px;font-size:0.83rem;font-weight:${state.tab===k?800:500};color:${state.tab===k?C.teal:C.stone};background:none;border:none;border-bottom:3px solid ${state.tab===k?C.teal:"transparent"};cursor:pointer;white-space:nowrap;flex-shrink:0;`;
+    tb.textContent=l; tb.addEventListener("click",()=>{state.tab=k;render();}); tabs.appendChild(tb);
+  });
+  app.appendChild(tabs);
+
+  const content=document.createElement("div"); content.style.cssText="padding:14px;max-width:1100px;margin:0 auto;";
+
+  if(state.tab==="list"){
+    if(stats.noAnest>0){
+      const alert=document.createElement("div"); alert.style.cssText=`background:#FEF0E6;border:1.5px solid #F0C090;border-radius:11px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;cursor:pointer;`;
+      alert.innerHTML=`<span>⚠️</span><span style="font-weight:700;color:${C.orange};">${stats.noAnest} paciente${stats.noAnest>1?"s":""} sin anestesia</span>`;
+      alert.addEventListener("click",()=>{state.filter="noAnest";render();}); content.appendChild(alert);
+    }
+
+    // Duplicate detection
+    const nameMap={};
+    live.forEach(r=>{const k=r.name.trim().toLowerCase();if(!nameMap[k])nameMap[k]=[];nameMap[k].push(r);});
+    const dupGroups=Object.values(nameMap).filter(g=>g.length>1);
+    const dupCount=dupGroups.reduce((s,g)=>s+g.length,0);
+    if(dupCount>0){
+      const dupAlert=document.createElement("div"); dupAlert.style.cssText=`background:#FDE8E8;border:1.5px solid #F0A0A0;border-radius:11px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;`;
+      const dupMsg=document.createElement("span"); dupMsg.innerHTML=`<span style="font-weight:700;color:${C.red};">🔁 ${dupCount} registros duplicados detectados (${dupGroups.length} nombre${dupGroups.length>1?"s":""})</span>`;
+      const dedupBtn=document.createElement("button"); dedupBtn.textContent="Eliminar duplicados"; dedupBtn.style.cssText=`background:${C.red};color:white;border:none;padding:6px 14px;border-radius:8px;font-size:0.8rem;font-weight:700;cursor:pointer;white-space:nowrap;`;
+      dedupBtn.addEventListener("click",()=>{
+        const names=dupGroups.map(g=>g.map(r=>r.name).join(", ")).join("\n");
+        if(!confirm(`Se conservará solo el registro más reciente de cada nombre duplicado:\n\n${names}\n\n¿Continuar?`))return;
+        // Keep first occurrence (most recent since list is newest-first), delete rest
+        const seen=new Set(); const toDelete=[];
+        live.forEach(r=>{const k=r.name.trim().toLowerCase();if(seen.has(k)){toDelete.push(r.id);}else{seen.add(k);}});
+        const cleaned=state.records.filter(r=>!toDelete.includes(r.id));
+        saveRecords(cleaned);
+        toDelete.forEach(id=>deleteRecordRemote(id));
+        render();
+      });
+      dupAlert.appendChild(dupMsg); dupAlert.appendChild(dedupBtn); content.appendChild(dupAlert);
+    }
+
+    const actRow=document.createElement("div"); actRow.style.cssText="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center;";
+    actRow.appendChild(btn("＋ Nueva",()=>openModal("new")));
+    const searchInp=document.createElement("input"); searchInp.placeholder="Buscar…"; searchInp.value=state.search; searchInp.style.cssText=`flex:1;min-width:140px;padding:10px 12px;border:1.5px solid ${C.border};border-radius:9px;font-size:0.88rem;outline:none;`;
+    searchInp.addEventListener("input",e=>{state.search=e.target.value;renderTable();}); actRow.appendChild(searchInp); content.appendChild(actRow);
+
+    const pills=document.createElement("div"); pills.style.cssText="display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap;";
+    [["all","Todos"],["pending","⏳ Pendientes"],["scheduled","📅 Programados"],["done","✅ Operados"],["noAnest","⚠️ Sin anestesia"]].forEach(([k,l])=>{
+      const p=document.createElement("button"); p.style.cssText=`padding:5px 12px;border-radius:20px;font-size:0.76rem;font-weight:700;cursor:pointer;border:1.5px solid ${state.filter===k?C.teal:C.border};background:${state.filter===k?C.teal:"white"};color:${state.filter===k?"white":C.stone};`;
+      p.textContent=l; p.addEventListener("click",()=>{state.filter=k;render();}); pills.appendChild(p);
+    });
+    content.appendChild(pills);
+
+    // Sort controls
+    const sortBar=document.createElement("div"); sortBar.style.cssText="display:flex;gap:7px;margin-bottom:12px;align-items:center;flex-wrap:wrap;";
+    const sortLabel=document.createElement("span"); sortLabel.textContent="Ordenar:"; sortLabel.style.cssText=`font-size:0.75rem;color:${C.stone};font-weight:700;`;
+    sortBar.appendChild(sortLabel);
+    [["name","Nombre"],["date","Captura"],["status","Estado"],["total","Total"]].forEach(([k,l])=>{
+      const sb=document.createElement("button");
+      const active=state.sortBy===k;
+      sb.style.cssText=`padding:4px 11px;border-radius:20px;font-size:0.74rem;font-weight:700;cursor:pointer;border:1.5px solid ${active?C.teal:C.border};background:${active?C.teal:"white"};color:${active?"white":C.stone};`;
+      sb.textContent=active?(state.sortDir==="asc"?l+" ↑":l+" ↓"):l;
+      sb.dataset.sortkey=k; sb.dataset.sortlabel=l;
+      sb.addEventListener("click",()=>{
+        if(state.sortBy===k) state.sortDir=state.sortDir==="asc"?"desc":"asc";
+        else{state.sortBy=k;state.sortDir="asc";}
+        // Update buttons visually without full render
+        sortBar.querySelectorAll("button[data-sortkey]").forEach(b=>{
+          const bk=b.dataset.sortkey; const bl=b.dataset.sortlabel; const ba=state.sortBy===bk;
+          b.style.border=`1.5px solid ${ba?C.teal:C.border}`;
+          b.style.background=ba?C.teal:"white";
+          b.style.color=ba?"white":C.stone;
+          b.textContent=ba?(state.sortDir==="asc"?bl+" ↑":bl+" ↓"):bl;
+        });
+        renderTable();
+      });
+      sortBar.appendChild(sb);
+    });
+    content.appendChild(sortBar);
+
+    const tableWrap=document.createElement("div"); tableWrap.style.cssText=`background:white;border-radius:13px;border:1px solid ${C.border};overflow:hidden;`; content.appendChild(tableWrap);
+
+    function renderTable(){
+      tableWrap.innerHTML="";
+      const q=state.search.toLowerCase();
+      const filtered=live.filter(r=>{
+        const st=(r.activeEyes||[]).map(e=>r.eyes?.[e]?.surgery||"").join(" ").toLowerCase();
+        return(!q||r.name.toLowerCase().includes(q)||st.includes(q))&&(state.filter==="all"||r.status===state.filter||(state.filter==="noAnest"&&r.status!=="done"&&(r.activeEyes||[]).some(e=>!r.eyes?.[e]?.costs?.anest)));
+      }).sort((a,b)=>{
+        const bestDate=r=>(r.activeEyes||[]).map(e=>r.eyes?.[e]?.dateScheduled||r.eyes?.[e]?.dateTentative).filter(Boolean).sort()[0]||"";
+        const totalAmt=r=>(r.activeEyes||[]).reduce((s,eye2)=>{const c=r.eyes?.[eye2]?.costs||{};return s+eyeTotal(c);},0);
+        let cmp=0;
+        if(state.sortBy==="name") cmp=a.name.localeCompare(b.name,"es");
+        else if(state.sortBy==="date"){const dA=a.createdAt||a.id||"";const dB=b.createdAt||b.id||"";cmp=dA.localeCompare(dB);}
+        else if(state.sortBy==="status") cmp=(a.status||"").localeCompare(b.status||"");
+        else if(state.sortBy==="total") cmp=totalAmt(a)-totalAmt(b);
+        return state.sortDir==="asc"?cmp:-cmp;
+      });
+      if(filtered.length===0){tableWrap.innerHTML=`<div style="text-align:center;padding:40px 24px;color:${C.stone};"><div style="font-size:2.5rem;margin-bottom:10px;opacity:0.3;">👁</div><div style="font-weight:700;margin-bottom:6px;">Sin cotizaciones</div><div style="font-size:0.85rem;">Toca "+ Nueva" para agregar tu primer paciente.</div></div>`;return;}
+      const dCol=d=>{const n=dDiff(d);if(n===null)return C.stone;if(n<0)return C.red;if(n<=7)return C.orange;if(n<=30)return C.gold;return C.green;};
+
+      filtered.forEach((r,i)=>{
+        const eyes=r.activeEyes||[];
+        const best=eyes.map(e=>r.eyes?.[e]?.dateScheduled||r.eyes?.[e]?.dateTentative).filter(Boolean).sort()[0];
+        const dias=dDiff(best);
+        const total=eyes.reduce((s,e)=>{const c=r.eyes?.[e]?.costs||{};return s+eyeTotal(c);},0);
+        const noA=eyes.some(e=>!r.eyes?.[e]?.costs?.anest||r.eyes?.[e]?.costs?.anest==="");
+        const canSched=r.status!=="done";
+
+        const row=document.createElement("div"); row.style.cssText=`display:grid;align-items:center;border-bottom:1px solid ${C.border};background:${i%2===0?"white":"#FAFAF8"};padding:10px 12px;gap:10px;grid-template-columns:1fr auto;`;
+
+        // Left: main info
+        const left=document.createElement("div"); left.style.cssText="display:grid;gap:6px;cursor:pointer;"; left.addEventListener("click",()=>openModal(r.id));
+
+        // Row 1: name + status
+        const row1=document.createElement("div"); row1.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
+        const nameEl=document.createElement("div"); nameEl.style.cssText="font-weight:800;font-size:0.95rem;"; nameEl.textContent=r.name;
+        row1.appendChild(nameEl); row1.appendChild(statusBadge(r.status));
+        left.appendChild(row1);
+
+        // Row 2: per-eye info with risk badge
+        const row2=document.createElement("div"); row2.style.cssText="display:flex;gap:8px;flex-wrap:wrap;align-items:center;";
+        eyes.forEach(eye=>{
+          const ed=r.eyes?.[eye];
+          const rl=RISK_LEVELS.find(x=>x.val===(ed?.risk||"standard"))||RISK_LEVELS[0];
+          const eyeChip=document.createElement("span"); eyeChip.style.cssText=`display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:0.76rem;font-weight:700;background:${eye==="OD"?C.tealPale:C.bluePale};color:${eye==="OD"?C.teal:C.blue};border:1.5px solid ${rl.color}33;`;
+          eyeChip.innerHTML=`👁 ${eye} <span style="background:${rl.pale};color:${rl.color};border-radius:10px;padding:1px 6px;font-size:0.67rem;">${rl.icon} ${rl.label}</span>`;
+          if(ed?.surgery){const surgSpan=document.createElement("span");surgSpan.style.cssText=`font-size:0.72rem;color:${C.stone};margin-left:2px;`;surgSpan.textContent="· "+ed.surgery;eyeChip.appendChild(surgSpan);}
+          row2.appendChild(eyeChip);
+        });
+        left.appendChild(row2);
+
+        // Row 3: dates + total
+        const row3=document.createElement("div"); row3.style.cssText=`display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:0.78rem;color:${C.stone};`;
+        eyes.forEach(eye=>{
+          const ds=r.eyes?.[eye]?.dateScheduled,dt2=r.eyes?.[eye]?.dateTentative;
+          if(ds){row3.innerHTML+=`<span style="font-weight:700;color:${dCol(ds)};">📅 ${eye}: ${fmtD(ds)}</span>`;}
+          else if(dt2){row3.innerHTML+=`<span style="font-style:italic;">~${eye}: ${fmtD(dt2)}</span>`;}
+        });
+        if(best&&r.status!=="done"&&dias!==null){row3.innerHTML+=`<span style="font-weight:700;color:${dCol(best)};">${dias<0?`Hace ${Math.abs(dias)}d`:dias===0?"Hoy":`En ${dias}d`}</span>`;}
+        if(total>0){const tt=document.createElement("span");tt.style.cssText="font-weight:800;color:#1A1814;";tt.textContent=fmt(total)||"";row3.appendChild(tt);}
+        if(noA&&r.status!=="done"){row3.innerHTML+=`<span style="background:#FEF0E6;color:${C.orange};border-radius:6px;padding:2px 7px;font-size:0.7rem;font-weight:800;">⚠️ Sin anestesia</span>`;}
+        if(r.tel1||r.tel2){row3.innerHTML+=`<span>${[r.tel1,r.tel2].filter(Boolean).join(" · ")}</span>`;}
+        left.appendChild(row3);
+        row.appendChild(left);
+
+        // Right: action buttons
+        const actions=document.createElement("div"); actions.style.cssText="display:flex;flex-direction:column;gap:5px;align-items:stretch;flex-shrink:0;min-width:44px;";
+
+        if(canSched){
+          const schedBtn=btn("📅",()=>{state.schedModal=r;render();},"outline",{padding:"8px 11px",fontSize:"0.95rem"});
+          schedBtn.title="Programar fecha"; actions.appendChild(schedBtn);
+          const doneBtn=btn("✅ Operado",()=>{
+            if(!confirm("¿Marcar a "+r.name+" como operado/a?"))return;
+            const updated={...r,status:"done"};
+            saveRecords(state.records.map(x=>x.id===r.id?updated:x));
+            saveRecordRemote(updated);
+          },"ghost",{padding:"7px 10px",fontSize:"0.78rem",color:C.green,border:"1.5px solid #B8E0C8",borderRadius:"8px",whiteSpace:"nowrap"});
+          actions.appendChild(doneBtn);
+        } else {
+          const doneEl=document.createElement("div"); doneEl.style.cssText=`font-size:1rem;color:${C.green};text-align:center;font-weight:700;padding:4px 0;`; doneEl.textContent="✅ Op.";
+          const undoBtn=btn("↩ Revertir",()=>{
+            if(!confirm("¿Revertir a pendiente?"))return;
+            const updated={...r,status:"pending"};
+            saveRecords(state.records.map(x=>x.id===r.id?updated:x));
+            saveRecordRemote(updated);
+          },"ghost",{padding:"6px 9px",fontSize:"0.75rem",color:C.stone,border:"1.5px solid "+C.border,borderRadius:"8px",whiteSpace:"nowrap"});
+          actions.appendChild(doneEl); actions.appendChild(undoBtn);
+        }
+
+        const printQuoteBtn=btn("🖨️",()=>{
+          const[py,pm,pd]=(new Date().toISOString().split("T")[0]).split("-");
+          const fechaHoy=new Date().toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
+          let eyeBlocks="";
+          (r.activeEyes||[]).forEach(eye=>{
+            const ed=r.eyes?.[eye]||{};
+            const c=ed.costs||{};
+            const rl=RISK_LEVELS.find(x=>x.val===(ed.risk||"standard"))||RISK_LEVELS[0];
+            const total=eyeTotal(c);
+            const fmt=v=>v&&parseFloat(v)>0?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(v):"—";
+            eyeBlocks+=`<div style="margin-bottom:20px;border:1.5px solid #ddd;border-radius:10px;overflow:hidden;">
+              <div style="background:#0D6B72;color:white;padding:10px 16px;font-weight:800;font-size:1rem;">
+                👁 ${eye==="OD"?"Ojo Derecho (OD)":"Ojo Izquierdo (OI)"}
+                <span style="float:right;font-size:0.8rem;font-weight:400;opacity:0.85;">${rl.icon} Riesgo ${rl.label}</span>
+              </div>
+              <div style="padding:14px 16px;">
+                <div style="font-size:1.05rem;font-weight:800;margin-bottom:6px;">${ed.surgery||"—"}${(ed.surgeryPlus||[]).length?" + "+ed.surgeryPlus.join(" + "):""}</div>
+                ${ed.dateTentative?`<div style="font-size:0.82rem;color:#555;margin-bottom:4px;">📅 Fecha tentativa: ${fmtDL(ed.dateTentative)}</div>`:""}
+                ${ed.dateScheduled?`<div style="font-size:0.82rem;color:#0D6B72;font-weight:700;margin-bottom:4px;">📅 Fecha programada: ${fmtDL(ed.dateScheduled)}</div>`:""}
+                ${ed.lioNeeded?`<div style="margin:10px 0;padding:10px 12px;background:#EEF4FB;border-radius:8px;font-size:0.85rem;color:#1A5FA8;line-height:1.8;">
+                  <strong>Lente intraocular:</strong><br>
+                  🔬 ${ed.lioType||"—"}${ed.lioPower?` · Poder: ${fmtPower(ed.lioPower)}D`:""}
+                  ${TORIC_TYPES.includes(ed.lioType)&&(ed.lioCyl||ed.lioAxis)?`<br>⊕ Cilindro: ${ed.lioCyl?fmtPower(ed.lioCyl)+"D":"—"} · Eje: ${ed.lioAxis||"?"}°`:""}
+                  ${MULTIFOCAL_TYPES.includes(ed.lioType)&&ed.lioAdd?`<br>➕ Adición: ${ed.lioAdd}D`:""}
+                  ${ed.lioNotes?`<br>📦 ${ed.lioNotes}`:""}
+                </div>`:""}
+                <table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:0.88rem;">
+                  <tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Gastos de quirófano</td><td style="text-align:right;font-weight:600;">${fmt(c.gastos)}</td></tr>
+                  <tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Anestesiólogo</td><td style="text-align:right;font-weight:600;">${fmt(c.anest)}</td></tr>
+                  ${(()=>{
+                    const isFacoPrint=["Faco + LIO","Faco + LIO + Antiangio","Faco + Trabe","Faco + Vitre"].includes(ed.surgery);
+                    const basePrint=(parseFloat(c.gastos)||0)+(parseFloat(c.anest)||0)+(parseFloat(c.otrosAmt)||0);
+                    if(isFacoPrint){
+                      let rows=`<tr><td colspan="2" style="padding:6px 0 3px;font-size:0.78rem;font-weight:800;color:#0D6B72;text-transform:uppercase;">Presupuesto según lente intraocular:</td></tr>`;
+                      [["Monofocal",c.implantesMonofocal],["Tórico",c.implantesTorico],["Multifocal",c.implantesMultifocal]].forEach(([lb,v])=>{
+                        if(!v||parseFloat(v)===0) return;
+                        const t2=basePrint+(parseFloat(v)||0);
+                        rows+=`<tr style="border-bottom:1px solid #eee;background:#F0FAF9;"><td style="padding:6px 8px;font-weight:700;color:#0D6B72;">Total ${lb}</td><td style="text-align:right;font-weight:800;color:#0D6B72;padding:6px 0;">${new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(t2)}</td></tr>`;
+                      });
+                      return rows;
+                    } else {
+                      return `<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Implantes / LIO</td><td style="text-align:right;font-weight:600;">${fmt(c.implantes)}</td></tr>
+                      ${c.otrosAmt&&parseFloat(c.otrosAmt)>0?`<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">${c.otrosDesc||"Otros"}</td><td style="text-align:right;font-weight:600;">${fmt(c.otrosAmt)}</td></tr>`:""}
+                      <tr><td style="padding:8px 0;font-weight:800;font-size:1rem;">TOTAL</td><td style="text-align:right;font-weight:800;font-size:1rem;color:#0D6B72;">${total>0?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(total):"—"}</td></tr>`;
+                    }
+                  })()}
+                </table>
+              </div>
+            </div>`;
+          });
+          openPrint(`
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:14px;border-bottom:2.5px solid #0D6B72;font-family:-apple-system,sans-serif;">
+              <div>
+                <div style="font-weight:900;font-size:1.25rem;color:#0D6B72;">COE Morelia</div>
+                <div style="font-size:0.85rem;color:#555;margin-top:2px;">Hospital Victoria 1206 Piso 12, Av Acueducto 2800</div>
+              </div>
+              <div style="text-align:right;font-size:0.8rem;color:#777;">Fecha: ${fechaHoy}</div>
+            </div>
+            <div style="margin-bottom:18px;font-family:-apple-system,sans-serif;">
+              <div style="font-size:1.1rem;font-weight:800;">${r.name}</div>
+              <div style="font-size:0.85rem;color:#555;margin-top:3px;">📞 ${r.tel1}${r.tel2?" · "+r.tel2:""}</div>
+              ${r.notes?`<div style="margin-top:6px;font-size:0.82rem;color:#666;font-style:italic;">Notas: ${r.notes}</div>`:""}
+            </div>
+            <div style="font-weight:800;font-size:0.78rem;text-transform:uppercase;color:#888;letter-spacing:0.05em;margin-bottom:10px;font-family:-apple-system,sans-serif;">Cotización quirúrgica</div>
+            ${eyeBlocks}
+            <div style="margin-top:20px;padding:12px 16px;background:#F7F5F2;border-radius:8px;font-size:0.75rem;color:#888;line-height:1.6;font-family:-apple-system,sans-serif;">
+              Esta cotización es informativa y puede estar sujeta a cambios según evolución clínica. Los precios incluyen los conceptos detallados y no incluyen medicamentos o estudios preoperatorios adicionales.
+            </div>
+            <div style="margin-top:16px;padding:14px 16px;background:#0D6B72;border-radius:8px;text-align:center;font-family:-apple-system,sans-serif;">
+              <div style="color:white;font-size:1.05rem;font-weight:900;letter-spacing:0.01em;">Para programación llame al 443 416 2267</div>
+            </div>
+            <div style="margin-top:16px;padding:14px 16px;background:#0D6B72;border-radius:8px;text-align:center;font-family:-apple-system,sans-serif;">
+              <div style="font-size:1.1rem;font-weight:900;color:white;letter-spacing:0.01em;">📞 Para programación llame al</div>
+              <div style="font-size:1.45rem;font-weight:900;color:white;margin-top:4px;letter-spacing:0.03em;">443 416 2267</div>
+            </div>
+          `);
+        },"ghost",{padding:"7px 10px",fontSize:"0.85rem",color:C.teal,border:"1.5px solid "+C.teal,borderRadius:"8px",whiteSpace:"nowrap"});
+        printQuoteBtn.title="Imprimir cotización";
+        actions.appendChild(printQuoteBtn);
+
+        const dupBtn=btn("📋 Duplicar",()=>{
+          const copy={...JSON.parse(JSON.stringify(r)),id:uid(),name:r.name+" (copia)",status:"pending"};
+          (copy.activeEyes||[]).forEach(eye=>{if(copy.eyes?.[eye]){copy.eyes[eye].dateScheduled="";copy.eyes[eye].dateTentative="";}});
+          saveRecords([copy,...state.records]);
+          saveRecordRemote(copy);
+        },"ghost",{padding:"6px 9px",fontSize:"0.75rem",color:C.stone,border:"1.5px solid "+C.border,borderRadius:"8px",whiteSpace:"nowrap"});
+        const delBtn=btn("🗑",()=>{
+          if(!confirm("¿Eliminar a "+r.name+"?"))return;
+          if(!confirm("⚠️ Confirma: esto borrará permanentemente el registro de "+r.name+". ¿Continuar?"))return;
+          saveRecords(state.records.filter(x=>x.id!==r.id));
+          deleteRecordRemote(r.id);
+        },"ghost",{padding:"7px 10px",fontSize:"0.85rem",color:C.red,border:"1.5px solid #F0C0C0",borderRadius:"8px",whiteSpace:"nowrap"});
+        delBtn.title="Eliminar registro";
+        actions.appendChild(delBtn);
+
+        row.appendChild(actions);
+        tableWrap.appendChild(row);
+      });
+    }
+    renderTable();
+  }
+
+  if(state.tab==="day") content.appendChild(buildDailyView());
+  if(state.tab==="history") content.appendChild(buildHistoryView());
+  app.appendChild(content);
+  if(state.modal) app.appendChild(buildModalDOM());
+  if(state.schedModal) app.appendChild(buildSchedModal());
+}
+
+// ── WEEKLY BACKUP ─────────────────────────────────────────────
+function weeklyBackup(force){
+  const KEY="oftalmo-last-backup";
+  const now=Date.now();
+  const last=parseInt(localStorage.getItem(KEY)||"0");
+  const days7=7*24*60*60*1000;
+  if(!force && (now-last)<days7) return;
+  const recs=state.records||[];
+  if(!recs.length) return;
+  const fecha=new Date().toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
+
+  // Build CSV — one row per eye per patient
+  const cols=["Paciente","Tel1","Tel2","Ojo","Cirugía","Cirugías adicionales","Riesgo","LIO tipo","LIO poder","LIO cilindro","LIO eje","LIO adición","LIO marca/modelo","Fecha tentativa","Fecha programada","Gastos","Anestesia","Implantes","Total","Estado","Notas"];
+  const esc=v=>`"${String(v??"-").replace(/"/g,'""')}"`;
+  const rows=[cols.map(esc).join(",")];
+  recs.forEach(r=>{
+    (r.activeEyes||[]).forEach(eye=>{
+      const e=r.eyes?.[eye]||{};
+      const c=e.costs||{};
+      const total=eyeTotal(c);
+      rows.push([
+        r.name, r.tel1||"", r.tel2||"",
+        eye==="OD"?"Ojo Derecho":"Ojo Izquierdo",
+        e.surgery||"", (e.surgeryPlus||[]).join(" + "),
+        e.risk||"standard",
+        e.lioNeeded?(e.lioType||""):"",
+        e.lioNeeded&&e.lioPower?fmtPower(e.lioPower)+"D":"",
+        e.lioNeeded&&e.lioCyl?fmtPower(e.lioCyl)+"D":"",
+        e.lioNeeded&&e.lioAxis?e.lioAxis+"°":"",
+        e.lioNeeded&&e.lioAdd?e.lioAdd+"D":"",
+        e.lioNeeded?(e.lioNotes||""):"",
+        e.dateTentative||"", e.dateScheduled||"",
+        c.gastos||"", c.anest||"", c.implantes||"",
+        total>0?total.toFixed(2):"",
+        r.status||"pending", r.notes||""
+      ].map(esc).join(","));
+    });
+  });
+  const csv=rows.join("\n");
+
+  const subject=encodeURIComponent(`COE | Backup semanal — ${fecha} (${recs.length} pacientes)`);
+  const body=encodeURIComponent(
+    `BACKUP SEMANAL — COE Morelia\nFecha: ${fecha}\nPacientes: ${recs.length}\n\n` +
+    `Copia el contenido desde "=== CSV ===" hasta el final y pégalo en Excel o Numbers.\n` +
+    `(Archivo > Importar > separado por comas)\n\n` +
+    `=== CSV ===\n${csv}`
+  );
+  localStorage.setItem(KEY, String(now));
+  const a=document.createElement("a");
+  a.href=`mailto:${BACKUP_EMAIL}?subject=${subject}&body=${body}`;
+  a.style.display="none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>document.body.removeChild(a),500);
+}
+
+// ── INIT ──────────────────────────────────────────────────────
+loadRecords(); // async — loads local first, then syncs from Supabase
+render();
+setTimeout(()=>{ weeklyBackup(false); }, 3000);
+</script>
+</body>
+</html>
