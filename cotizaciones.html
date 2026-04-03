@@ -53,12 +53,12 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
 const toStr=()=>new Date().toISOString().split("T")[0];
 const isPast=d=>d&&d<toStr();
 const dDiff=d=>{if(!d)return null;return Math.ceil((new Date(d)-new Date())/864e5);};
-const mkEye=()=>({surgery:"",surgeryPlus:[],lioNeeded:false,lioType:"",lioPower:"",lioCyl:"",lioAxis:"",lioAdd:"",lioNotes:"",dateTentative:"",dateScheduled:"",risk:"standard",costs:{gastos:"",anest:"",implantes:"",otrosAmt:"",otrosDesc:""}});
+const mkEye=()=>({surgery:"",surgeryPlus:[],lioNeeded:false,lioType:"",lioPower:"",lioCyl:"",lioAxis:"",lioAdd:"",lioNotes:"",dateTentative:"",dateScheduled:"",risk:"standard",costs:{gastos:"",anest:"",implantes:"",otrosAmt:"",otrosDesc:""},estudios:{oct:false,camposVisuales:false,topografia:false,paquimetria:false,iolMaster:false}});
 const TORIC_TYPES=["Tórico","Multifocal tórico","EDOF tórico","Premium personalizado"];
 const MULTIFOCAL_TYPES=["Multifocal","Multifocal tórico","EDOF","EDOF tórico","Acomodativo","Premium personalizado"];
 function fmtPower(v){if(v===""||v==null)return"";const n=parseFloat(v);if(isNaN(n))return v;return(n>=0?"+":"")+n.toFixed(2);}
 const fmtCost=n=>{if(n==null||n===""||isNaN(n)||parseFloat(n)===0)return null;return new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(n);};
-const mkForm=()=>({name:"",tel1:"",tel2:"",activeEyes:[],eyeFirst:"",eyes:{OD:mkEye(),OI:mkEye()},status:"pending",notes:""});
+const mkForm=()=>({name:"",tel1:"",tel2:"",activeEyes:[],eyeFirst:"",eyes:{OD:mkEye(),OI:mkEye()},status:"pending",notes:"",costMode:null}); // costMode: null=unset, "shared"=ambos ojos, "perEye"=independiente
 
 // ── SUPABASE ──────────────────────────────────────────────────
 const SB_URL="https://ckjkdenwqicdjvodflba.supabase.co";
@@ -196,7 +196,14 @@ function migrateRecord(r){
     });
     eyes[eye]={...mkEye(),...e,costs,surgeryPlus:[...(e.surgeryPlus||[])],lioCyl:e.lioCyl||"",lioAxis:e.lioAxis||"",lioAdd:e.lioAdd||""};
   });
-  return {...mkForm(),...r,eyes};
+  // Infer costMode from existing data
+  const activeEyes=r.activeEyes||[];
+  let costMode=r.costMode||null;
+  if(!costMode && activeEyes.length===2){
+    const hasAmbos=activeEyes.some(eye=>eyes[eye]?.costs?.gastosAmbosOjos);
+    costMode=hasAmbos?"shared":"perEye";
+  }
+  return {...mkForm(),...r,eyes,costMode};
 }
 
 // ── DOM HELPERS ───────────────────────────────────────────────
@@ -475,6 +482,29 @@ function makeEyePanel(eyeData,onchange,surgErr,parentActiveEyes,costOnly){
   dateGrid.appendChild(fldWrap("Fecha programada",schedInp));
   dateGrid.appendChild(fldWrap("Hora cirugía",timeInpMain));
   wrap.appendChild(dateGrid);
+
+  // Estudios preoperatorios
+  const estudSec=document.createElement("div"); estudSec.style.cssText=`padding-top:12px;border-top:1px solid ${C.border};margin-bottom:14px;`;
+  const estudTitle=document.createElement("div"); estudTitle.style.cssText=`font-size:0.66rem;font-weight:800;text-transform:uppercase;letter-spacing:0.12em;color:${C.stone};margin-bottom:8px;padding-bottom:6px;border-bottom:1.5px solid ${C.border};`; estudTitle.textContent="🔍 Estudios preoperatorios";
+  estudSec.appendChild(estudTitle);
+  const estudGrid=document.createElement("div"); estudGrid.style.cssText="display:grid;grid-template-columns:1fr 1fr;gap:6px;";
+  const ESTUDIOS_LIST=[["oct","OCT"],["camposVisuales","Campos visuales"],["topografia","Topografía"],["paquimetria","Paquimetría"],["iolMaster","IOL Master"]];
+  if(!data.estudios) data.estudios={oct:false,camposVisuales:false,topografia:false,paquimetria:false,iolMaster:false};
+  ESTUDIOS_LIST.forEach(([key,label])=>{
+    const lbl=document.createElement("label"); lbl.style.cssText=`display:flex;align-items:center;gap:8px;cursor:pointer;padding:7px 10px;border-radius:8px;border:1.5px solid ${data.estudios[key]?C.teal:C.border};background:${data.estudios[key]?C.tealPale:"white"};transition:all 0.1s;font-size:0.86rem;font-weight:${data.estudios[key]?700:500};color:${data.estudios[key]?C.teal:C.inkSoft};`;
+    const chk=document.createElement("input"); chk.type="checkbox"; chk.checked=!!data.estudios[key]; chk.style.cssText=`width:16px;height:16px;accent-color:${C.teal};flex-shrink:0;`;
+    chk.addEventListener("change",e=>{
+      data.estudios={...data.estudios,[key]:e.target.checked};
+      onchange(data);
+      lbl.style.borderColor=e.target.checked?C.teal:C.border;
+      lbl.style.background=e.target.checked?C.tealPale:"white";
+      lbl.style.fontWeight=e.target.checked?"700":"500";
+      lbl.style.color=e.target.checked?C.teal:C.inkSoft;
+    });
+    lbl.appendChild(chk); lbl.appendChild(document.createTextNode(label));
+    estudGrid.appendChild(lbl);
+  });
+  estudSec.appendChild(estudGrid); wrap.appendChild(estudSec);
   } // end if(!costOnly)
 
   // Costs
@@ -705,12 +735,13 @@ function validateForm(){
 function saveRecord(){
   const e=validateForm(); if(Object.keys(e).length){state.errors=e;render();return;}
   const isBoth=(state.form.activeEyes||[]).length===2;
-  const alreadyAmbos=isBoth&&(state.form.eyes?.["OD"]?.costs?.gastosAmbosOjos||state.form.eyes?.["OI"]?.costs?.gastosAmbosOjos);
-  if(isBoth && !state._bothConfirmed && !alreadyAmbos){
-    state._awaitingBothConfirm=true; render(); return;
+  const costMode=state.form.costMode;
+  // Require costMode when both eyes
+  if(isBoth && !costMode){
+    state.errors={activeEyes:"Selecciona si el costo es compartido o por ojo"};render();return;
   }
   state._bothConfirmed=false; state._awaitingBothConfirm=false;
-  if(isBoth){
+  if(isBoth && costMode==="shared"){
     const raw=state.form.eyes["OD"].costs||{};
     const cleanCosts={
       gastos:raw.gastos&&parseFloat(raw.gastos)>0?raw.gastos:"",
@@ -723,8 +754,15 @@ function saveRecord(){
       otrosDesc:raw.otrosDesc||"",
       gastosAmbosOjos:true
     };
-    state.form.eyes["OD"]={...state.form.eyes["OD"], costs:cleanCosts};
-    state.form.eyes["OI"]={...state.form.eyes["OI"], costs:{...cleanCosts}};
+    state.form.eyes["OD"]={...state.form.eyes["OD"],costs:cleanCosts};
+    state.form.eyes["OI"]={...state.form.eyes["OI"],costs:{...cleanCosts}};
+  } else if(isBoth && costMode==="perEye"){
+    // Clear gastosAmbosOjos from both eyes
+    ["OD","OI"].forEach(eye=>{
+      if(state.form.eyes[eye]?.costs?.gastosAmbosOjos){
+        state.form.eyes[eye]={...state.form.eyes[eye],costs:{...state.form.eyes[eye].costs,gastosAmbosOjos:false}};
+      }
+    });
   }
   const rec={...state.form,id:state.modal==="new"?uid():state.modal,createdAt:state.modal==="new"?new Date().toISOString():(state.records.find(r=>r.id===state.modal)?.createdAt||new Date().toISOString())};
   const next=state.modal==="new"?[rec,...state.records]:state.records.map(r=>r.id===state.modal?rec:r);
@@ -778,35 +816,91 @@ function buildModalDOM(){
     eb.addEventListener("click",()=>{
       const cur=state.form.activeEyes||[];
       state.form.activeEyes=cur.includes(eye)?cur.filter(e=>e!==eye):[...cur,eye].sort();
-      if(state.form.activeEyes.length>0)state.modalEyeTab=state.form.activeEyes[0];
+      if(state.form.activeEyes.length>0) state.modalEyeTab=state.form.activeEyes[0];
+      // Reset costMode when eye selection changes
+      if(state.form.activeEyes.length!==2) state.form.costMode=null;
       render();
     });
     eyeToggleRow.appendChild(eb);
   });
   secEyes.appendChild(eyeToggleRow);
+
   if((state.form.activeEyes||[]).length===2){
-    secEyes.appendChild(fldWrap("¿Con cuál ojo se inicia?",sel(state.form.eyeFirst,v=>state.form.eyeFirst=v,[["","Por definir"],["OD","Inicia OD"],["OI","Inicia OI"]])));
+    // Cost mode selector — ask how costs are structured
+    if(!state.form.costMode){
+      const modeBox=document.createElement("div"); modeBox.style.cssText=`margin-bottom:14px;padding:14px;background:#F0FAF9;border:1.5px solid ${C.teal}44;border-radius:12px;`;
+      const modeTitle=document.createElement("div"); modeTitle.style.cssText=`font-weight:800;font-size:0.88rem;color:${C.teal};margin-bottom:10px;`; modeTitle.textContent="👁👁 Ambos ojos — ¿cómo es el costo?";
+      const modeRow=document.createElement("div"); modeRow.style.cssText="display:grid;grid-template-columns:1fr 1fr;gap:10px;";
+      const mkModeBtn=(icon,label,sub,mode)=>{
+        const b=document.createElement("button"); b.style.cssText=`padding:12px 10px;border-radius:10px;border:2px solid ${C.teal}44;background:white;cursor:pointer;text-align:center;`;
+        b.innerHTML=`<div style="font-size:1.4rem;margin-bottom:4px;">${icon}</div><div style="font-weight:800;font-size:0.85rem;color:${C.teal};">${label}</div><div style="font-size:0.72rem;color:${C.stone};margin-top:2px;">${sub}</div>`;
+        b.addEventListener("click",()=>{state.form.costMode=mode;render();});
+        return b;
+      };
+      modeRow.appendChild(mkModeBtn("👁👁","Un solo costo","Aplica igual para OD y OI","shared"));
+      modeRow.appendChild(mkModeBtn("👁 | 👁","Costo por ojo","Cada ojo con su propio desglose","perEye"));
+      modeBox.appendChild(modeTitle); modeBox.appendChild(modeRow); secEyes.appendChild(modeBox);
+      // Don't show rest until mode is chosen
+    } else {
+      // Show mode badge + change link
+      const modeBadge=document.createElement("div"); modeBadge.style.cssText=`display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:8px 12px;background:${C.tealPale};border-radius:9px;`;
+      const modeLabel=state.form.costMode==="shared"?"👁👁 Costo compartido — Ambos ojos":"👁 | 👁 Costo independiente por ojo";
+      modeBadge.innerHTML=`<span style="font-weight:700;font-size:0.82rem;color:${C.teal};">${modeLabel}</span>`;
+      const changeBtn=document.createElement("button"); changeBtn.textContent="Cambiar"; changeBtn.style.cssText=`background:none;border:none;color:${C.stone};font-size:0.76rem;cursor:pointer;text-decoration:underline;`;
+      changeBtn.addEventListener("click",()=>{state.form.costMode=null;render();});
+      modeBadge.appendChild(changeBtn); secEyes.appendChild(modeBadge);
+
+      secEyes.appendChild(fldWrap("¿Con cuál ojo se inicia?",sel(state.form.eyeFirst,v=>state.form.eyeFirst=v,[["","Por definir"],["OD","Inicia OD"],["OI","Inicia OI"]])));
+    }
   }
   if((state.form.activeEyes||[]).length>0){
     const eyes=state.form.activeEyes||[];
     const isBoth=eyes.length>1;
-    if(isBoth){
-      // Single panel — same surgery and cost for both eyes
-      const bothBanner=document.createElement("div"); bothBanner.style.cssText=`display:flex;align-items:center;gap:8px;padding:9px 13px;background:${C.tealPale};border:1.5px solid ${C.teal}44;border-radius:10px;margin-bottom:12px;font-size:0.82rem;color:${C.teal};font-weight:700;`;
-      bothBanner.innerHTML=`👁👁 <span>Ambos ojos — mismo procedimiento y mismo costo</span>`;
-      secEyes.appendChild(bothBanner);
+    const costMode=state.form.costMode;
 
-      // Use OD as the single data source
-      const sharedData=state.form.eyes["OD"]||mkEye();
-      sharedData._eye="OD"; sharedData._parentActiveEyes=eyes; sharedData._sharedBothEyes=true;
-      secEyes.appendChild(makeEyePanel(sharedData, d=>{
-        // Mirror everything to both eyes
-        const withFlag={...d, costs:{...d.costs, gastosAmbosOjos:true}};
-        state.form.eyes["OD"]=withFlag;
-        state.form.eyes["OI"]={...withFlag};
-      }, state.errors["OD_s"], eyes));
+    if(isBoth && !costMode){
+      // Waiting for cost mode selection — don't show panels yet
+    } else if(isBoth && costMode==="shared"){
+      // SHARED: tabs for surgery/LIO per eye, single cost panel
+      const tabRow=document.createElement("div"); tabRow.style.cssText=`display:flex;gap:2px;margin-bottom:10px;border-bottom:2px solid ${C.border};`;
+      eyes.forEach(eye=>{
+        const active=state.modalEyeTab===eye;
+        const tb=document.createElement("button"); tb.style.cssText=`padding:8px 16px;font-size:0.83rem;font-weight:${active?800:500};color:${active?(eye==="OD"?C.teal:C.blue):C.stone};background:none;border:none;border-bottom:3px solid ${active?(eye==="OD"?C.teal:C.blue):"transparent"};cursor:pointer;`;
+        tb.textContent=`👁 ${eye} ${eye==="OD"?"(Derecho)":"(Izquierdo)"}`;
+        tb.addEventListener("click",()=>{state.modalEyeTab=eye;render();});
+        tabRow.appendChild(tb);
+      });
+      secEyes.appendChild(tabRow);
+      const ae=state.modalEyeTab;
+      const eyeData=state.form.eyes[ae]||mkEye();
+      eyeData._eye=ae; eyeData._parentActiveEyes=eyes; eyeData._hideCosts=true;
+      secEyes.appendChild(makeEyePanel(eyeData,d=>{state.form.eyes[ae]=d;},state.errors[ae+"_s"],eyes));
+      // Shared cost panel using OD
+      const sharedEyeData=state.form.eyes["OD"]||mkEye();
+      sharedEyeData._eye="OD"; sharedEyeData._parentActiveEyes=eyes; sharedEyeData._sharedBothEyes=true; sharedEyeData._hideCosts=false;
+      secEyes.appendChild(makeEyePanel(sharedEyeData,d=>{
+        state.form.eyes["OD"]=d;
+        state.form.eyes["OI"]={...state.form.eyes["OI"],costs:{...d.costs,gastosAmbosOjos:true}};
+      },null,eyes,true));
+
+    } else if(isBoth && costMode==="perEye"){
+      // PER EYE: tabs, each eye has its own full panel
+      const tabRow=document.createElement("div"); tabRow.style.cssText=`display:flex;gap:2px;margin-bottom:10px;border-bottom:2px solid ${C.border};`;
+      eyes.forEach(eye=>{
+        const active=state.modalEyeTab===eye;
+        const tb=document.createElement("button"); tb.style.cssText=`padding:8px 16px;font-size:0.83rem;font-weight:${active?800:500};color:${active?(eye==="OD"?C.teal:C.blue):C.stone};background:none;border:none;border-bottom:3px solid ${active?(eye==="OD"?C.teal:C.blue):"transparent"};cursor:pointer;`;
+        tb.textContent=`👁 ${eye} ${eye==="OD"?"(Derecho)":"(Izquierdo)"}`;
+        tb.addEventListener("click",()=>{state.modalEyeTab=eye;render();});
+        tabRow.appendChild(tb);
+      });
+      secEyes.appendChild(tabRow);
+      const ae=state.modalEyeTab;
+      const eyeData=state.form.eyes[ae]||mkEye();
+      eyeData._eye=ae; eyeData._parentActiveEyes=eyes; eyeData._hideCosts=false;
+      secEyes.appendChild(makeEyePanel(eyeData,d=>{state.form.eyes[ae]=d;},state.errors[ae+"_s"],eyes));
 
     } else {
+      // Single eye
       const eye=eyes[0];
       const eyeData1=state.form.eyes[eye]||mkEye();
       eyeData1._eye=eye; eyeData1._parentActiveEyes=state.form.activeEyes;
@@ -827,21 +921,7 @@ function buildModalDOM(){
   const mFoot=document.createElement("div"); mFoot.style.cssText=`padding:11px 18px 16px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid ${C.border};flex-wrap:wrap;`;
   if(state.modal!=="new")mFoot.appendChild(btn("🗑 Eliminar",deleteRecord,"danger"));
   mFoot.appendChild(btn("Cancelar",closeModal,"outline"));
-
-  if(state._awaitingBothConfirm){
-    // Show inline confirmation instead of confirm()
-    const confirmBox=document.createElement("div"); confirmBox.style.cssText=`width:100%;order:-1;background:#FDF4E3;border:1.5px solid #E8C97A;border-radius:10px;padding:12px 14px;margin-bottom:8px;`;
-    confirmBox.innerHTML=`<div style="font-weight:800;font-size:0.88rem;color:#B07D2A;margin-bottom:8px;">⚠️ Ambos ojos activos — ¿confirmar cotización?</div>
-      <div style="font-size:0.8rem;color:#7A5A1A;margin-bottom:10px;">El costo capturado aplica para <strong>OD y OI juntos</strong>. Esto quedará indicado en la hoja impresa.</div>`;
-    const btnRow=document.createElement("div"); btnRow.style.cssText="display:flex;gap:8px;";
-    const confirmYes=btn("✅ Sí, guardar para ambos ojos",()=>{state._bothConfirmed=true;saveRecord();},"primary",{fontSize:"0.82rem",padding:"9px 14px"});
-    const confirmNo=btn("✕ Cancelar",()=>{state._awaitingBothConfirm=false;render();},"outline",{fontSize:"0.82rem",padding:"9px 14px"});
-    btnRow.appendChild(confirmNo); btnRow.appendChild(confirmYes);
-    confirmBox.appendChild(btnRow); mFoot.appendChild(confirmBox);
-  } else {
-    mFoot.appendChild(btn("Guardar",saveRecord,"primary"));
-  }
-
+  mFoot.appendChild(btn("Guardar",saveRecord,"primary"));
   box.appendChild(mFoot); overlay.appendChild(box);
   return overlay;
 }
@@ -913,6 +993,25 @@ function buildDayCard(r,selDate,index){
         rem.textContent="⚠️ Recordar marcaje pre-quirúrgico";
         ep.appendChild(rem);
       }
+    }
+    // Hora programada
+    if(ed.timeScheduled){
+      const timeDiv=document.createElement("div"); timeDiv.style.cssText=`margin-top:7px;display:inline-flex;align-items:center;gap:5px;background:#E8F4F5;color:${C.teal};border-radius:8px;padding:4px 10px;font-size:0.85rem;font-weight:800;`; timeDiv.textContent=`⏰ ${ed.timeScheduled}`;
+      ep.appendChild(timeDiv);
+    }
+    // Estudios preoperatorios
+    const estudiosLabels={oct:"OCT",camposVisuales:"Campos visuales",topografia:"Topografía",paquimetria:"Paquimetría",iolMaster:"IOL Master"};
+    const estChecked=Object.entries(estudiosLabels).filter(([k])=>ed.estudios?.[k]);
+    if(estChecked.length>0){
+      const estDiv=document.createElement("div"); estDiv.style.cssText="margin-top:8px;padding-top:6px;border-top:1px dashed #ddd;";
+      const estLbl=document.createElement("div"); estLbl.style.cssText=`font-size:0.66rem;font-weight:800;text-transform:uppercase;color:${C.stone};margin-bottom:4px;`; estLbl.textContent="Estudios:";
+      estDiv.appendChild(estLbl);
+      const estWrap=document.createElement("div"); estWrap.style.cssText="display:flex;flex-wrap:wrap;gap:4px;";
+      estChecked.forEach(([,label])=>{
+        const chip=document.createElement("span"); chip.style.cssText=`background:#F0EAF7;color:#6B38A8;border-radius:6px;padding:2px 8px;font-size:0.72rem;font-weight:700;`; chip.textContent=label;
+        estWrap.appendChild(chip);
+      });
+      estDiv.appendChild(estWrap); ep.appendChild(estDiv);
     }
     const costs=document.createElement("div"); costs.className="print-costs"; costs.style.cssText=`margin-top:10px;padding-top:8px;border-top:1px solid ${C.border};`;
     const isFacoCard=["Faco + LIO","Faco + LIO + Antiangio","Faco + Trabe","Faco + Vitre"].includes(ed.surgery);
@@ -1039,13 +1138,15 @@ function buildDailyView(){
         const riskOrder={complex:2,medium:1,standard:0};
         const dominantRl=eyes.reduce((w,eye)=>{const rl=RISK_LEVELS.find(x=>x.val===(r.eyes?.[eye]?.risk||"standard"))||RISK_LEVELS[0];return riskOrder[rl.val]>riskOrder[w.val]?rl:w;},RISK_LEVELS[0]);
         let h=`<div style="border:2px solid ${dominantRl.color}44;border-radius:10px;margin-bottom:14px;page-break-inside:avoid;">`;
+        const printTime=eyes.map(eye=>r.eyes?.[eye]?.timeScheduled).filter(Boolean)[0]||"";
         h+=`<div style="background:${dominantRl.pale};padding:10px 14px;border-bottom:1px solid ${dominantRl.color}22;display:flex;align-items:center;gap:10px;">
           <div style="background:${dominantRl.color};color:white;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:0.85rem;">${i+1}</div>
           <div style="flex:1;">
             <div style="font-weight:800;font-size:1rem;">${r.name}</div>
             <div style="font-size:0.78rem;color:#666;">${r.tel1}${r.tel2?" · "+r.tel2:""}</div>
           </div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;">`;
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+          ${printTime?`<span style="background:#0D6B72;color:white;border-radius:8px;padding:4px 12px;font-size:1rem;font-weight:900;letter-spacing:0.04em;">⏰ ${printTime}</span>`:""}`;
         eyes.forEach(eye=>{
           const rl=RISK_LEVELS.find(x=>x.val===(r.eyes?.[eye]?.risk||"standard"))||RISK_LEVELS[0];
           h+=`<span style="background:${rl.pale};color:${rl.color};border-radius:20px;padding:3px 9px;font-size:0.72rem;font-weight:700;">👁 ${eye} ${rl.icon} ${rl.label}</span>`;
@@ -1056,7 +1157,7 @@ function buildDailyView(){
           const ed=r.eyes?.[eye]||{};
           const rl=RISK_LEVELS.find(x=>x.val===(ed.risk||"standard"))||RISK_LEVELS[0];
           h+=`<div style="background:#F7F5F2;border-radius:8px;padding:10px 12px;">
-            <div style="font-size:0.7rem;font-weight:800;color:#0D6B72;text-transform:uppercase;margin-bottom:6px;">👁 ${eye} — ${eye==="OD"?"OJO DERECHO":"OJO IZQUIERDO"}</div>
+            <div style="font-size:0.7rem;font-weight:800;color:#0D6B72;text-transform:uppercase;margin-bottom:6px;">👁 ${eye} — ${eye==="OD"?"OJO DERECHO":"OJO IZQUIERDO"}${ed.timeScheduled?` &nbsp;<span style="background:#0D6B72;color:white;border-radius:6px;padding:1px 8px;font-size:0.72rem;font-weight:800;">⏰ ${ed.timeScheduled}</span>`:""}</div>
             <div style="margin-bottom:6px;"><span style="background:${rl.pale};color:${rl.color};border-radius:10px;padding:2px 8px;font-size:0.7rem;font-weight:700;">${rl.icon} ${rl.label}</span></div>
             <div style="font-weight:800;font-size:0.95rem;margin-bottom:4px;">${ed.surgery||"—"}</div>`;
           if((ed.surgeryPlus||[]).length) ed.surgeryPlus.forEach(p=>{h+=`<span style="background:#E8F4F5;color:#0D6B72;border-radius:4px;padding:1px 7px;font-size:0.72rem;font-weight:700;margin-right:4px;">+ ${p}</span>`;});
@@ -1068,6 +1169,12 @@ function buildDailyView(){
             if(ed.lioNotes) h+=`<br>📦 ${ed.lioNotes}`;
             h+=`</div>`;
             if(ed.lioType==="Premium personalizado") h+=`<div style="margin-top:5px;padding:6px 9px;background:#FDF4E3;border:1.5px solid #E8C97A;border-radius:7px;font-size:0.78rem;color:#B07D2A;font-weight:700;">⚠️ Recordar marcaje pre-quirúrgico</div>`;
+          }
+          // Estudios preoperatorios en hoja de programación
+          const estudLabels2={oct:"OCT",camposVisuales:"Campos visuales",topografia:"Topografía",paquimetria:"Paquimetría",iolMaster:"IOL Master"};
+          const estList2=Object.entries(estudLabels2).filter(([k])=>ed.estudios?.[k]);
+          if(estList2.length>0){
+            h+=`<div style="margin-top:6px;padding:5px 8px;background:#F0EAF7;border-radius:7px;font-size:0.75rem;"><strong style="color:#6B38A8;">Estudios:</strong> ${estList2.map(([,l])=>l).join(" · ")}</div>`;
           }
           if(ed.dateScheduled) h+=`<div style="margin-top:6px;font-size:0.78rem;color:#555;">📅 ${fmtDL(ed.dateScheduled)}${ed.timeScheduled?" · ⏰ "+ed.timeScheduled:""}</div>`;
           h+=`</div>`;
@@ -1224,7 +1331,7 @@ function render(){
   const syncIcon=state.syncing?'<span style="font-size:0.65rem;color:#7EC8C8;font-weight:400;margin-left:4px;">⟳ sincronizando…</span>':state.syncError?'<span style="font-size:0.65rem;color:#C05C10;font-weight:400;margin-left:4px;">⚠ sin conexión</span>':'<span style="font-size:0.65rem;color:#7EC8C8;font-weight:400;margin-left:4px;">☁</span>';
   const titleEl=document.createElement("div"); titleEl.style.cssText="font-weight:800;font-size:1rem;"; titleEl.innerHTML=`👁 COE <span style="color:#7EC8C8;">·</span> Cirugías ${syncIcon}`;
   const statsBox=document.createElement("div"); statsBox.style.cssText="display:flex;gap:14px;";
-  [["total","Total","#C8C0B8"],["pending","Pend.","#B07D2A"],["noAnest","Anest.","#C05C10"],["done","Op.","#7EC8C8"]].forEach(([k,l,c])=>{
+  [["total","Total","#C8C0B8"],["pending","Pend.","#B07D2A"],["done","Op.","#7EC8C8"]].forEach(([k,l,c])=>{
     const s=document.createElement("div"); s.style.textAlign="center";
     s.innerHTML=`<div style="font-size:1rem;font-weight:800;color:${c};line-height:1;">${stats[k]}</div><div style="font-size:0.55rem;color:#C8C0B8;text-transform:uppercase;">${l}</div>`;
     statsBox.appendChild(s);
@@ -1329,12 +1436,6 @@ function render(){
   const content=document.createElement("div"); content.style.cssText="padding:14px;max-width:1100px;margin:0 auto;";
 
   if(state.tab==="list"){
-    if(stats.noAnest>0){
-      const alert=document.createElement("div"); alert.style.cssText=`background:#FEF0E6;border:1.5px solid #F0C090;border-radius:11px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;cursor:pointer;`;
-      alert.innerHTML=`<span>⚠️</span><span style="font-weight:700;color:${C.orange};">${stats.noAnest} paciente${stats.noAnest>1?"s":""} sin anestesia</span>`;
-      alert.addEventListener("click",()=>{state.filter="noAnest";render();}); content.appendChild(alert);
-    }
-
     // Duplicate detection
     const nameMap={};
     live.forEach(r=>{const k=r.name.trim().toLowerCase();if(!nameMap[k])nameMap[k]=[];nameMap[k].push(r);});
@@ -1364,7 +1465,7 @@ function render(){
     searchInp.addEventListener("input",e=>{state.search=e.target.value;renderTable();}); actRow.appendChild(searchInp); content.appendChild(actRow);
 
     const pills=document.createElement("div"); pills.style.cssText="display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap;";
-    [["all","Todos"],["pending","⏳ Pendientes"],["scheduled","📅 Programados"],["done","✅ Operados"],["noAnest","⚠️ Sin anestesia"]].forEach(([k,l])=>{
+    [["all","Todos"],["pending","⏳ Pendientes"],["scheduled","📅 Programados"],["done","✅ Operados"]].forEach(([k,l])=>{
       const p=document.createElement("button"); p.style.cssText=`padding:5px 12px;border-radius:20px;font-size:0.76rem;font-weight:700;cursor:pointer;border:1.5px solid ${state.filter===k?C.teal:C.border};background:${state.filter===k?C.teal:"white"};color:${state.filter===k?"white":C.stone};`;
       p.textContent=l; p.addEventListener("click",()=>{state.filter=k;render();}); pills.appendChild(p);
     });
@@ -1458,7 +1559,6 @@ function render(){
         });
         if(best&&r.status!=="done"&&dias!==null){row3.innerHTML+=`<span style="font-weight:700;color:${dCol(best)};">${dias<0?`Hace ${Math.abs(dias)}d`:dias===0?"Hoy":`En ${dias}d`}</span>`;}
         if(total>0){const tt=document.createElement("span");tt.style.cssText="font-weight:800;color:#1A1814;";tt.textContent=fmt(total)||"";row3.appendChild(tt);}
-        if(noA&&r.status!=="done"){row3.innerHTML+=`<span style="background:#FEF0E6;color:${C.orange};border-radius:6px;padding:2px 7px;font-size:0.7rem;font-weight:800;">⚠️ Sin anestesia</span>`;}
         if(r.tel1||r.tel2){row3.innerHTML+=`<span>${[r.tel1,r.tel2].filter(Boolean).join(" · ")}</span>`;}
         left.appendChild(row3);
         row.appendChild(left);
@@ -1518,20 +1618,20 @@ function render(){
                 ${ed.lioNeeded?`<div style="margin-top:4px;font-size:0.8rem;color:#1A5FA8;">🔬 ${ed.lioType||"—"}${ed.lioPower?" · "+fmtPower(ed.lioPower)+"D":""}${ed.lioNotes?" · "+ed.lioNotes:""}</div>`:""}
               </div>`;
             });
-            eyeBlocks+=`<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:0.88rem;">
-              <tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Gastos de quirófano <span style="background:#E8F4F5;color:#0D6B72;border-radius:4px;padding:1px 6px;font-size:0.72rem;font-weight:700;">Ambos ojos</span></td><td style="text-align:right;font-weight:600;">${fmt(costs.gastos)}</td></tr>
-              <tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Anestesiólogo</td><td style="text-align:right;font-weight:600;">${fmt(costs.anest)}</td></tr>`;
+            eyeBlocks+=`<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:1rem;">
+              <tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">Gastos de quirófano <span style="background:#E8F4F5;color:#0D6B72;border-radius:4px;padding:1px 6px;font-size:0.72rem;font-weight:700;">Ambos ojos</span></td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(costs.gastos)}</td></tr>
+              <tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">Anestesiólogo</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(costs.anest)}</td></tr>`;
             if(isFacoPrint){
-              eyeBlocks+=`<tr><td colspan="2" style="padding:6px 0 3px;font-size:0.78rem;font-weight:800;color:#0D6B72;text-transform:uppercase;">Presupuesto según lente intraocular:</td></tr>`;
+              eyeBlocks+=`<tr><td colspan="2" style="padding:8px 0 4px;font-size:0.85rem;font-weight:800;color:#0D6B72;text-transform:uppercase;letter-spacing:0.05em;">Presupuesto según lente intraocular:</td></tr>`;
               [["Monofocal",costs.implantesMonofocal],["Tórico",costs.implantesTorico],["Multifocal",costs.implantesMultifocal]].forEach(([lb,v])=>{
                 if(!v||parseFloat(v)===0) return;
                 const t2=basePrint+(parseFloat(v)||0);
-                eyeBlocks+=`<tr style="border-bottom:1px solid #eee;background:#F0FAF9;"><td style="padding:6px 8px;font-weight:700;color:#0D6B72;">Total ${lb}</td><td style="text-align:right;font-weight:800;color:#0D6B72;padding:6px 0;">${new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(t2)}</td></tr>`;
+                eyeBlocks+=`<tr style="border-bottom:1px solid #ddd;background:#F0FAF9;"><td style="padding:8px 10px;font-weight:700;font-size:0.95rem;color:#333;">Total ${lb}</td><td style="text-align:right;font-weight:900;font-size:1.35rem;color:#000;padding:8px 0;">${new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(t2)}</td></tr>`;
               });
             } else {
-              eyeBlocks+=`<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Implantes / LIO</td><td style="text-align:right;font-weight:600;">${fmt(costs.implantes)}</td></tr>`;
-              if(costs.otrosAmt&&parseFloat(costs.otrosAmt)>0) eyeBlocks+=`<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">${costs.otrosDesc||"Otros"}</td><td style="text-align:right;font-weight:600;">${fmt(costs.otrosAmt)}</td></tr>`;
-              eyeBlocks+=`<tr><td style="padding:8px 0;font-weight:800;font-size:1rem;">TOTAL</td><td style="text-align:right;font-weight:800;font-size:1rem;color:#0D6B72;">${totalSimple>0?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(totalSimple):"—"}</td></tr>`;
+              eyeBlocks+=`<tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">Implantes / LIO</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(costs.implantes)}</td></tr>`;
+              if(costs.otrosAmt&&parseFloat(costs.otrosAmt)>0) eyeBlocks+=`<tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">${costs.otrosDesc||"Otros"}</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(costs.otrosAmt)}</td></tr>`;
+              eyeBlocks+=`<tr style="border-top:2.5px solid #333;"><td style="padding:10px 0;font-weight:900;font-size:1.1rem;color:#000;">TOTAL</td><td style="text-align:right;font-weight:900;font-size:1.5rem;color:#000;">${totalSimple>0?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(totalSimple):"—"}</td></tr>`;
             }
             eyeBlocks+=`</table></div></div>`;
           } else {
@@ -1560,24 +1660,24 @@ function render(){
                   ${MULTIFOCAL_TYPES.includes(ed.lioType)&&ed.lioAdd?"<br>➕ Adición: "+ed.lioAdd+"D":""}
                   ${ed.lioNotes?"<br>📦 "+ed.lioNotes:""}
                 </div>`:""}
-                <table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:0.88rem;">
-                  <tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Gastos de quirófano</td><td style="text-align:right;font-weight:600;">${fmt(c.gastos)}</td></tr>
-                  <tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Anestesiólogo</td><td style="text-align:right;font-weight:600;">${fmt(c.anest)}</td></tr>
+                <table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:1rem;">
+                  <tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">Gastos de quirófano</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(c.gastos)}</td></tr>
+                  <tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">Anestesiólogo</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(c.anest)}</td></tr>
                   ${(()=>{
                     const isFacoPrint=["Faco + LIO","Faco + LIO + Antiangio","Faco + Trabe","Faco + Vitre"].includes(ed.surgery);
                     const basePrint=(parseFloat(c.gastos)||0)+(parseFloat(c.anest)||0)+(parseFloat(c.otrosAmt)||0);
                     if(isFacoPrint){
-                      let rows=`<tr><td colspan="2" style="padding:6px 0 3px;font-size:0.78rem;font-weight:800;color:#0D6B72;text-transform:uppercase;">Presupuesto según lente intraocular:</td></tr>`;
+                      let rows=`<tr><td colspan="2" style="padding:8px 0 4px;font-size:0.85rem;font-weight:800;color:#0D6B72;text-transform:uppercase;letter-spacing:0.05em;">Presupuesto según lente intraocular:</td></tr>`;
                       [["Monofocal",c.implantesMonofocal],["Tórico",c.implantesTorico],["Multifocal",c.implantesMultifocal]].forEach(([lb,v])=>{
                         if(!v||parseFloat(v)===0) return;
                         const t2=basePrint+(parseFloat(v)||0);
-                        rows+=`<tr style="border-bottom:1px solid #eee;background:#F0FAF9;"><td style="padding:6px 8px;font-weight:700;color:#0D6B72;">Total ${lb}</td><td style="text-align:right;font-weight:800;color:#0D6B72;padding:6px 0;">${new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(t2)}</td></tr>`;
+                        rows+=`<tr style="border-bottom:1px solid #ddd;background:#F0FAF9;"><td style="padding:8px 10px;font-weight:700;font-size:0.95rem;color:#333;">Total ${lb}</td><td style="text-align:right;font-weight:900;font-size:1.35rem;color:#000;padding:8px 0;">${new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(t2)}</td></tr>`;
                       });
                       return rows;
                     } else {
-                      return `<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">Implantes / LIO</td><td style="text-align:right;font-weight:600;">${fmt(c.implantes)}</td></tr>`+
-                        (c.otrosAmt&&parseFloat(c.otrosAmt)>0?`<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#555;">${c.otrosDesc||"Otros"}</td><td style="text-align:right;font-weight:600;">${fmt(c.otrosAmt)}</td></tr>`:"")+
-                        `<tr><td style="padding:8px 0;font-weight:800;font-size:1rem;">TOTAL</td><td style="text-align:right;font-weight:800;font-size:1rem;color:#0D6B72;">${total>0?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(total):"—"}</td></tr>`;
+                      return `<tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">Implantes / LIO</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(c.implantes)}</td></tr>`+
+                        (c.otrosAmt&&parseFloat(c.otrosAmt)>0?`<tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">${c.otrosDesc||"Otros"}</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(c.otrosAmt)}</td></tr>`:"")+
+                        `<tr style="border-top:2.5px solid #333;"><td style="padding:10px 0;font-weight:900;font-size:1.1rem;color:#000;">TOTAL</td><td style="text-align:right;font-weight:900;font-size:1.5rem;color:#000;">${total>0?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(total):"—"}</td></tr>`;
                     }
                   })()}
                 </table>
@@ -1600,11 +1700,8 @@ function render(){
             </div>
             <div style="font-weight:800;font-size:0.78rem;text-transform:uppercase;color:#888;letter-spacing:0.05em;margin-bottom:10px;font-family:-apple-system,sans-serif;">Cotización quirúrgica</div>
             ${eyeBlocks}
-            <div style="margin-top:20px;padding:12px 16px;background:#F7F5F2;border-radius:8px;font-size:0.75rem;color:#888;line-height:1.6;font-family:-apple-system,sans-serif;">
-              Esta cotización es informativa y puede estar sujeta a cambios según evolución clínica. Los precios incluyen los conceptos detallados y no incluyen medicamentos o estudios preoperatorios adicionales.
-            </div>
-            <div style="margin-top:16px;padding:14px 16px;background:#0D6B72;border-radius:8px;text-align:center;font-family:-apple-system,sans-serif;">
-              <div style="color:white;font-size:1.05rem;font-weight:900;letter-spacing:0.01em;">Para programación llame al 459 100 0431 o al 459 134 5529</div>
+            <div style="margin-top:20px;padding:14px 16px;border:2px dashed #999;border-radius:8px;font-size:0.82rem;color:#333;line-height:1.7;font-family:-apple-system,sans-serif;">
+              <strong>⚠️ NOTA IMPORTANTE:</strong> Los precios indicados en esta cotización son de carácter <strong>informativo únicamente</strong> y están <strong>sujetos a cambio sin previo aviso</strong>, de acuerdo con la evolución clínica del paciente, disponibilidad de materiales y otros factores. Esta cotización no constituye un compromiso de precio ni obligación contractual. Los precios incluyen los conceptos detallados y no incluyen medicamentos ni estudios preoperatorios adicionales.
             </div>
             <div style="margin-top:16px;padding:14px 16px;background:#0D6B72;border-radius:8px;text-align:center;font-family:-apple-system,sans-serif;">
               <div style="font-size:1.1rem;font-weight:900;color:white;letter-spacing:0.01em;">📞 Para programación llame al</div>
