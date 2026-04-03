@@ -53,7 +53,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
 const toStr=()=>new Date().toISOString().split("T")[0];
 const isPast=d=>d&&d<toStr();
 const dDiff=d=>{if(!d)return null;return Math.ceil((new Date(d)-new Date())/864e5);};
-const mkEye=()=>({surgery:"",surgeryPlus:[],lioNeeded:false,lioType:"",lioPower:"",lioCyl:"",lioAxis:"",lioAdd:"",lioNotes:"",dateTentative:"",dateScheduled:"",risk:"standard",costs:{gastos:"",anest:"",implantes:"",otrosAmt:"",otrosDesc:""},estudios:{oct:false,camposVisuales:false,topografia:false,paquimetria:false,iolMaster:false}});
+const mkEye=()=>({surgery:"",surgeryPlus:[],lioNeeded:false,lioType:"",lioPower:"",lioCyl:"",lioAxis:"",lioAdd:"",lioNotes:"",dateTentative:"",dateScheduled:"",risk:"standard",costs:{gastos:"",anest:"",implantes:"",otrosAmt:"",otrosDesc:""},estudios:{oct:false,camposVisuales:false,topografia:false,paquimetria:false,iolMaster:false},estudiosNotes:""});
 const TORIC_TYPES=["Tórico","Multifocal tórico","EDOF tórico","Premium personalizado"];
 const MULTIFOCAL_TYPES=["Multifocal","Multifocal tórico","EDOF","EDOF tórico","Acomodativo","Premium personalizado"];
 function fmtPower(v){if(v===""||v==null)return"";const n=parseFloat(v);if(isNaN(n))return v;return(n>=0?"+":"")+n.toFixed(2);}
@@ -483,10 +483,21 @@ function makeEyePanel(eyeData,onchange,surgErr,parentActiveEyes,costOnly){
   dateGrid.appendChild(fldWrap("Hora cirugía",timeInpMain));
   wrap.appendChild(dateGrid);
 
-  // Estudios preoperatorios
+  // Estudios oftalmológicos
   const estudSec=document.createElement("div"); estudSec.style.cssText=`padding-top:12px;border-top:1px solid ${C.border};margin-bottom:14px;`;
-  const estudTitle=document.createElement("div"); estudTitle.style.cssText=`font-size:0.66rem;font-weight:800;text-transform:uppercase;letter-spacing:0.12em;color:${C.stone};margin-bottom:8px;padding-bottom:6px;border-bottom:1.5px solid ${C.border};`; estudTitle.textContent="🔍 Estudios preoperatorios";
+  const estudTitle=document.createElement("div"); estudTitle.style.cssText=`font-size:0.66rem;font-weight:800;text-transform:uppercase;letter-spacing:0.12em;color:${C.stone};margin-bottom:8px;padding-bottom:6px;border-bottom:1.5px solid ${C.border};`; estudTitle.textContent="🔍 Estudios oftalmológicos";
   estudSec.appendChild(estudTitle);
+
+  // Tabs: Estudios | Texto libre
+  let estudTab="estudios";
+  const tabRowE=document.createElement("div"); tabRowE.style.cssText=`display:flex;gap:0;margin-bottom:8px;border:1.5px solid ${C.border};border-radius:8px;overflow:hidden;`;
+  const tabEstBtn=document.createElement("button"); tabEstBtn.style.cssText=`flex:1;padding:6px 10px;font-size:0.78rem;font-weight:700;border:none;cursor:pointer;background:${C.teal};color:white;`; tabEstBtn.textContent="Estudios";
+  const tabTxtBtn=document.createElement("button"); tabTxtBtn.style.cssText=`flex:1;padding:6px 10px;font-size:0.78rem;font-weight:700;border:none;cursor:pointer;background:white;color:${C.stone};border-left:1.5px solid ${C.border};`; tabTxtBtn.textContent="Texto libre";
+  tabRowE.appendChild(tabEstBtn); tabRowE.appendChild(tabTxtBtn); estudSec.appendChild(tabRowE);
+
+  const panelEstudios=document.createElement("div");
+  const panelTexto=document.createElement("div"); panelTexto.style.display="none";
+
   const estudGrid=document.createElement("div"); estudGrid.style.cssText="display:grid;grid-template-columns:1fr 1fr;gap:6px;";
   const ESTUDIOS_LIST=[["oct","OCT"],["camposVisuales","Campos visuales"],["topografia","Topografía"],["paquimetria","Paquimetría"],["iolMaster","IOL Master"]];
   if(!data.estudios) data.estudios={oct:false,camposVisuales:false,topografia:false,paquimetria:false,iolMaster:false};
@@ -504,7 +515,26 @@ function makeEyePanel(eyeData,onchange,surgErr,parentActiveEyes,costOnly){
     lbl.appendChild(chk); lbl.appendChild(document.createTextNode(label));
     estudGrid.appendChild(lbl);
   });
-  estudSec.appendChild(estudGrid); wrap.appendChild(estudSec);
+  panelEstudios.appendChild(estudGrid);
+
+  const txtArea=document.createElement("textarea");
+  txtArea.value=data.estudiosNotes||""; txtArea.placeholder="Indicaciones, estudios especiales, observaciones…";
+  txtArea.style.cssText=`width:100%;padding:9px 11px;border:1.5px solid ${C.border};border-radius:9px;font-size:0.86rem;font-family:inherit;resize:vertical;min-height:72px;outline:none;box-sizing:border-box;color:${C.ink};`;
+  txtArea.addEventListener("input",e=>{data.estudiosNotes=e.target.value;onchange(data);});
+  panelTexto.appendChild(txtArea);
+
+  function switchEstTab(t){
+    estudTab=t;
+    panelEstudios.style.display=t==="estudios"?"block":"none";
+    panelTexto.style.display=t==="texto"?"block":"none";
+    tabEstBtn.style.background=t==="estudios"?C.teal:"white";
+    tabEstBtn.style.color=t==="estudios"?"white":C.stone;
+    tabTxtBtn.style.background=t==="texto"?C.teal:"white";
+    tabTxtBtn.style.color=t==="texto"?"white":C.stone;
+  }
+  tabEstBtn.addEventListener("click",()=>switchEstTab("estudios"));
+  tabTxtBtn.addEventListener("click",()=>switchEstTab("texto"));
+  estudSec.appendChild(panelEstudios); estudSec.appendChild(panelTexto); wrap.appendChild(estudSec);
   } // end if(!costOnly)
 
   // Costs
@@ -1011,7 +1041,11 @@ function buildDayCard(r,selDate,index){
         const chip=document.createElement("span"); chip.style.cssText=`background:#F0EAF7;color:#6B38A8;border-radius:6px;padding:2px 8px;font-size:0.72rem;font-weight:700;`; chip.textContent=label;
         estWrap.appendChild(chip);
       });
-      estDiv.appendChild(estWrap); ep.appendChild(estDiv);
+      estDiv.appendChild(estWrap);
+      if(ed.estudiosNotes){const n=document.createElement("div");n.style.cssText="margin-top:5px;font-size:0.78rem;color:#555;font-style:italic;";n.textContent=ed.estudiosNotes;estDiv.appendChild(n);}
+      ep.appendChild(estDiv);
+    } else if(ed.estudiosNotes){
+      const estDiv=document.createElement("div"); estDiv.style.cssText="margin-top:8px;padding-top:6px;border-top:1px dashed #ddd;font-size:0.78rem;color:#555;font-style:italic;"; estDiv.textContent=ed.estudiosNotes; ep.appendChild(estDiv);
     }
     const costs=document.createElement("div"); costs.className="print-costs"; costs.style.cssText=`margin-top:10px;padding-top:8px;border-top:1px solid ${C.border};`;
     const isFacoCard=["Faco + LIO","Faco + LIO + Antiangio","Faco + Trabe","Faco + Vitre"].includes(ed.surgery);
@@ -1173,8 +1207,12 @@ function buildDailyView(){
           // Estudios preoperatorios en hoja de programación
           const estudLabels2={oct:"OCT",camposVisuales:"Campos visuales",topografia:"Topografía",paquimetria:"Paquimetría",iolMaster:"IOL Master"};
           const estList2=Object.entries(estudLabels2).filter(([k])=>ed.estudios?.[k]);
-          if(estList2.length>0){
-            h+=`<div style="margin-top:6px;padding:5px 8px;background:#F0EAF7;border-radius:7px;font-size:0.75rem;"><strong style="color:#6B38A8;">Estudios:</strong> ${estList2.map(([,l])=>l).join(" · ")}</div>`;
+          if(estList2.length>0||ed.estudiosNotes){
+            let estHtml=`<div style="margin-top:6px;padding:5px 8px;background:#F0EAF7;border-radius:7px;font-size:0.75rem;">`;
+            if(estList2.length>0) estHtml+=`<strong style="color:#6B38A8;">Estudios:</strong> ${estList2.map(([,l])=>l).join(" · ")}`;
+            if(ed.estudiosNotes) estHtml+=`${estList2.length>0?"<br>":"<strong style='color:#6B38A8;'>Notas:</strong> "}<em style="color:#555;">${ed.estudiosNotes}</em>`;
+            estHtml+=`</div>`;
+            h+=estHtml;
           }
           if(ed.dateScheduled) h+=`<div style="margin-top:6px;font-size:0.78rem;color:#555;">📅 ${fmtDL(ed.dateScheduled)}${ed.timeScheduled?" · ⏰ "+ed.timeScheduled:""}</div>`;
           h+=`</div>`;
@@ -1695,7 +1733,7 @@ function render(){
             </div>
             <div style="margin-bottom:18px;font-family:-apple-system,sans-serif;">
               <div style="font-size:1.1rem;font-weight:800;">${r.name}</div>
-              <div style="font-size:0.85rem;color:#555;margin-top:3px;">📞 ${r.tel1}${r.tel2?" · "+r.tel2:""}</div>
+              <div style="font-size:0.95rem;color:#000;font-weight:700;margin-top:3px;">📞 ${r.tel1}${r.tel2?" · "+r.tel2:""}</div>
               ${r.notes?`<div style="margin-top:6px;font-size:0.82rem;color:#666;font-style:italic;">Notas: ${r.notes}</div>`:""}
             </div>
             <div style="font-weight:800;font-size:0.78rem;text-transform:uppercase;color:#888;letter-spacing:0.05em;margin-bottom:10px;font-family:-apple-system,sans-serif;">Cotización quirúrgica</div>
