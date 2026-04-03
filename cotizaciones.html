@@ -12,7 +12,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 input,select,textarea,button{font-family:inherit;}
 @media print{
   body > *{display:none!important;}
-  #coe-print-layer{display:block!important;padding:20px;font-family:-apple-system,sans-serif;color:#1A1814;}
+  #coe-print-layer{display:block!important;padding:20px;font-family:-apple-system,sans-serif;color:#1A1814;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
   #coe-quote-layer{display:block!important;padding:28px;font-family:-apple-system,sans-serif;color:#1A1814;max-width:680px;margin:0 auto;}
   .print-costs{display:none!important;}
   .day-card{border:1px solid #ccc!important;border-radius:8px!important;margin-bottom:16px!important;page-break-inside:avoid;overflow:visible!important;}
@@ -53,7 +53,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
 const toStr=()=>new Date().toISOString().split("T")[0];
 const isPast=d=>d&&d<toStr();
 const dDiff=d=>{if(!d)return null;return Math.ceil((new Date(d)-new Date())/864e5);};
-const mkEye=()=>({surgery:"",surgeryPlus:[],lioNeeded:false,lioType:"",lioPower:"",lioCyl:"",lioAxis:"",lioAdd:"",lioNotes:"",dateTentative:"",dateScheduled:"",risk:"standard",costs:{gastos:"",anest:"",implantes:"",otrosAmt:"",otrosDesc:""},estudios:{oct:false,camposVisuales:false,topografia:false,paquimetria:false,iolMaster:false},estudiosNotes:""});
+const mkEye=()=>({surgery:"",surgeryPlus:[],lioNeeded:false,lioType:"",lioPower:"",lioCyl:"",lioAxis:"",lioAdd:"",lioNotes:"",dateTentative:"",dateScheduled:"",risk:"standard",costs:{gastos:"",anest:"",implantes:"",otrosAmt:"",otrosDesc:""},estudios:{oct:false,camposVisuales:false,topografia:false,paquimetria:false,iolMaster:false,paqueteRefractivo:false},estudiosNotes:""});
 const TORIC_TYPES=["Tórico","Multifocal tórico","EDOF tórico","Premium personalizado"];
 const MULTIFOCAL_TYPES=["Multifocal","Multifocal tórico","EDOF","EDOF tórico","Acomodativo","Premium personalizado"];
 function fmtPower(v){if(v===""||v==null)return"";const n=parseFloat(v);if(isNaN(n))return v;return(n>=0?"+":"")+n.toFixed(2);}
@@ -499,8 +499,8 @@ function makeEyePanel(eyeData,onchange,surgErr,parentActiveEyes,costOnly){
   const panelTexto=document.createElement("div"); panelTexto.style.display="none";
 
   const estudGrid=document.createElement("div"); estudGrid.style.cssText="display:grid;grid-template-columns:1fr 1fr;gap:6px;";
-  const ESTUDIOS_LIST=[["oct","OCT"],["camposVisuales","Campos visuales"],["topografia","Topografía"],["paquimetria","Paquimetría"],["iolMaster","IOL Master"]];
-  if(!data.estudios) data.estudios={oct:false,camposVisuales:false,topografia:false,paquimetria:false,iolMaster:false};
+  const ESTUDIOS_LIST=[["oct","OCT"],["camposVisuales","Campos visuales"],["topografia","Topografía"],["paquimetria","Paquimetría"],["iolMaster","IOL Master"],["paqueteRefractivo","📦 Paquete refractivo"]];
+  if(!data.estudios) data.estudios={oct:false,camposVisuales:false,topografia:false,paquimetria:false,iolMaster:false,paqueteRefractivo:false};
   ESTUDIOS_LIST.forEach(([key,label])=>{
     const lbl=document.createElement("label"); lbl.style.cssText=`display:flex;align-items:center;gap:8px;cursor:pointer;padding:7px 10px;border-radius:8px;border:1.5px solid ${data.estudios[key]?C.teal:C.border};background:${data.estudios[key]?C.tealPale:"white"};transition:all 0.1s;font-size:0.86rem;font-weight:${data.estudios[key]?700:500};color:${data.estudios[key]?C.teal:C.inkSoft};`;
     const chk=document.createElement("input"); chk.type="checkbox"; chk.checked=!!data.estudios[key]; chk.style.cssText=`width:16px;height:16px;accent-color:${C.teal};flex-shrink:0;`;
@@ -751,13 +751,14 @@ function validateForm(){
   if(!f.name.trim())e.name="Nombre obligatorio";
   if(!f.tel1.trim())e.tel1="Teléfono 1 obligatorio";
   if(!(f.activeEyes||[]).length)e.activeEyes="Selecciona al menos un ojo";
+  // Helper: true if eye has at least one study or notes → procedure not required
+  const hasStudies=eye=>{const est=f.eyes?.[eye]?.estudios||{};return Object.values(est).some(Boolean)||!!(f.eyes?.[eye]?.estudiosNotes?.trim());};
   const isBothVal=(f.activeEyes||[]).length===2;
   if(isBothVal){
-    // Only require OD surgery when both eyes active — OI mirrors OD
-    if(!f.eyes?.["OD"]?.surgery)e["OD_s"]="Procedimiento OD obligatorio";
+    if(!f.eyes?.["OD"]?.surgery&&!hasStudies("OD"))e["OD_s"]="Procedimiento OD obligatorio (o selecciona un estudio)";
   } else {
     (f.activeEyes||[]).forEach(eye=>{
-      if(!f.eyes?.[eye]?.surgery)e[eye+"_s"]="Procedimiento "+eye+" obligatorio";
+      if(!f.eyes?.[eye]?.surgery&&!hasStudies(eye))e[eye+"_s"]="Procedimiento obligatorio (o selecciona un estudio)";
     });
   }
   return e;
@@ -891,27 +892,26 @@ function buildModalDOM(){
     if(isBoth && !costMode){
       // Waiting for cost mode selection — don't show panels yet
     } else if(isBoth && costMode==="shared"){
-      // SHARED: tabs for surgery/LIO per eye, single cost panel
-      const tabRow=document.createElement("div"); tabRow.style.cssText=`display:flex;gap:2px;margin-bottom:10px;border-bottom:2px solid ${C.border};`;
-      eyes.forEach(eye=>{
-        const active=state.modalEyeTab===eye;
-        const tb=document.createElement("button"); tb.style.cssText=`padding:8px 16px;font-size:0.83rem;font-weight:${active?800:500};color:${active?(eye==="OD"?C.teal:C.blue):C.stone};background:none;border:none;border-bottom:3px solid ${active?(eye==="OD"?C.teal:C.blue):"transparent"};cursor:pointer;`;
-        tb.textContent=`👁 ${eye} ${eye==="OD"?"(Derecho)":"(Izquierdo)"}`;
-        tb.addEventListener("click",()=>{state.modalEyeTab=eye;render();});
-        tabRow.appendChild(tb);
-      });
-      secEyes.appendChild(tabRow);
-      const ae=state.modalEyeTab;
-      const eyeData=state.form.eyes[ae]||mkEye();
-      eyeData._eye=ae; eyeData._parentActiveEyes=eyes; eyeData._hideCosts=true;
-      secEyes.appendChild(makeEyePanel(eyeData,d=>{state.form.eyes[ae]=d;},state.errors[ae+"_s"],eyes));
-      // Shared cost panel using OD
+      // SHARED: ONE surgery/LIO/dates panel applies to both eyes + single cost
+      const sharedNote=document.createElement("div"); sharedNote.style.cssText=`margin-bottom:10px;padding:9px 13px;background:#E8F4F5;border:1.5px solid ${C.teal}44;border-radius:9px;font-size:0.82rem;color:${C.teal};font-weight:700;`;
+      sharedNote.innerHTML="👁👁 Procedimiento, LIO y fechas se registran <strong>una sola vez</strong> para ambos ojos";
+      secEyes.appendChild(sharedNote);
+      // Use OD as single source, mirror everything to OI on change
       const sharedEyeData=state.form.eyes["OD"]||mkEye();
       sharedEyeData._eye="OD"; sharedEyeData._parentActiveEyes=eyes; sharedEyeData._sharedBothEyes=true; sharedEyeData._hideCosts=false;
       secEyes.appendChild(makeEyePanel(sharedEyeData,d=>{
+        // Mirror surgery/LIO/dates to both eyes, costs only to OD (shared)
         state.form.eyes["OD"]=d;
-        state.form.eyes["OI"]={...state.form.eyes["OI"],costs:{...d.costs,gastosAmbosOjos:true}};
-      },null,eyes,true));
+        state.form.eyes["OI"]={
+          ...state.form.eyes["OI"],
+          surgery:d.surgery, surgeryPlus:[...(d.surgeryPlus||[])],
+          lioNeeded:d.lioNeeded, lioType:d.lioType, lioPower:d.lioPower,
+          lioCyl:d.lioCyl, lioAxis:d.lioAxis, lioAdd:d.lioAdd, lioNotes:d.lioNotes,
+          dateTentative:d.dateTentative, dateScheduled:d.dateScheduled, timeScheduled:d.timeScheduled,
+          risk:d.risk, estudios:{...d.estudios}, estudiosNotes:d.estudiosNotes,
+          costs:{...d.costs,gastosAmbosOjos:true}
+        };
+      },state.errors["OD_s"],eyes));
 
     } else if(isBoth && costMode==="perEye"){
       // PER EYE: tabs, each eye has its own full panel
@@ -1030,7 +1030,7 @@ function buildDayCard(r,selDate,index){
       ep.appendChild(timeDiv);
     }
     // Estudios preoperatorios
-    const estudiosLabels={oct:"OCT",camposVisuales:"Campos visuales",topografia:"Topografía",paquimetria:"Paquimetría",iolMaster:"IOL Master"};
+    const estudiosLabels={oct:"OCT",camposVisuales:"Campos visuales",topografia:"Topografía",paquimetria:"Paquimetría",iolMaster:"IOL Master",paqueteRefractivo:"Paquete refractivo"};
     const estChecked=Object.entries(estudiosLabels).filter(([k])=>ed.estudios?.[k]);
     if(estChecked.length>0){
       const estDiv=document.createElement("div"); estDiv.style.cssText="margin-top:8px;padding-top:6px;border-top:1px dashed #ddd;";
@@ -1177,7 +1177,7 @@ function buildDailyView(){
           <div style="background:${dominantRl.color};color:white;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:0.85rem;">${i+1}</div>
           <div style="flex:1;">
             <div style="font-weight:800;font-size:1rem;">${r.name}</div>
-            <div style="font-size:0.82rem;color:#000;font-weight:700;">${r.tel1}${r.tel2?" · "+r.tel2:""}</div>
+            <div style="font-size:0.82rem;color:black;font-weight:800;-webkit-print-color-adjust:exact;print-color-adjust:exact;">${r.tel1}${r.tel2?" · "+r.tel2:""}</div>
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
           ${printTime?`<span style="background:#0D6B72;color:white;border-radius:8px;padding:4px 12px;font-size:1rem;font-weight:900;letter-spacing:0.04em;">⏰ ${printTime}</span>`:""}`;
@@ -1205,7 +1205,7 @@ function buildDailyView(){
             if(ed.lioType==="Premium personalizado") h+=`<div style="margin-top:5px;padding:6px 9px;background:#FDF4E3;border:1.5px solid #E8C97A;border-radius:7px;font-size:0.78rem;color:#B07D2A;font-weight:700;">⚠️ Recordar marcaje pre-quirúrgico</div>`;
           }
           // Estudios preoperatorios en hoja de programación
-          const estudLabels2={oct:"OCT",camposVisuales:"Campos visuales",topografia:"Topografía",paquimetria:"Paquimetría",iolMaster:"IOL Master"};
+          const estudLabels2={oct:"OCT",camposVisuales:"Campos visuales",topografia:"Topografía",paquimetria:"Paquimetría",iolMaster:"IOL Master",paqueteRefractivo:"Paquete refractivo"};
           const estList2=Object.entries(estudLabels2).filter(([k])=>ed.estudios?.[k]);
           if(estList2.length>0||ed.estudiosNotes){
             let estHtml=`<div style="margin-top:6px;padding:5px 8px;background:#F0EAF7;border-radius:7px;font-size:0.75rem;">`;
@@ -1733,7 +1733,7 @@ function render(){
             </div>
             <div style="margin-bottom:18px;font-family:-apple-system,sans-serif;">
               <div style="font-size:1.1rem;font-weight:800;">${r.name}</div>
-              <div style="font-size:0.95rem;color:#000;font-weight:700;margin-top:3px;">📞 ${r.tel1}${r.tel2?" · "+r.tel2:""}</div>
+              <div style="font-size:1rem;color:black;font-weight:800;margin-top:4px;-webkit-print-color-adjust:exact;print-color-adjust:exact;">📞 ${r.tel1}${r.tel2?" &nbsp;·&nbsp; "+r.tel2:""}</div>
               ${r.notes?`<div style="margin-top:6px;font-size:0.82rem;color:#666;font-style:italic;">Notas: ${r.notes}</div>`:""}
             </div>
             <div style="font-weight:800;font-size:0.78rem;text-transform:uppercase;color:#888;letter-spacing:0.05em;margin-bottom:10px;font-family:-apple-system,sans-serif;">Cotización quirúrgica</div>
