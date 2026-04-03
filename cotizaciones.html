@@ -1656,6 +1656,18 @@ function render(){
                 ${ed.lioNeeded?`<div style="margin-top:4px;font-size:0.8rem;color:#1A5FA8;">🔬 ${ed.lioType||"—"}${ed.lioPower?" · "+fmtPower(ed.lioPower)+"D":""}${ed.lioNotes?" · "+ed.lioNotes:""}</div>`:""}
               </div>`;
             });
+            // Estudios block for ambos (use first eye with studies)
+            const eyeWithEstudios=activeEyesPrint.find(eye=>{const est=r.eyes?.[eye]?.estudios||{};return Object.values(est).some(Boolean)||!!(r.eyes?.[eye]?.estudiosNotes?.trim());});
+            if(eyeWithEstudios){
+              const edE=r.eyes?.[eyeWithEstudios]||{};
+              const estLblsA={oct:"OCT",camposVisuales:"Campos visuales",topografia:"Topografía",paquimetria:"Paquimetría",iolMaster:"IOL Master",paqueteRefractivo:"Paquete refractivo"};
+              const estChkA=Object.entries(estLblsA).filter(([k])=>edE.estudios?.[k]);
+              eyeBlocks+=`<div style="margin:10px 0;padding:11px 13px;background:#F5F0FB;border:1.5px solid #C9B3E8;border-radius:8px;">`;
+              eyeBlocks+=`<div style="font-size:0.75rem;font-weight:800;text-transform:uppercase;color:#6B38A8;letter-spacing:0.06em;margin-bottom:8px;">🔍 Estudios oftalmológicos</div>`;
+              if(estChkA.length){eyeBlocks+=`<div style="display:flex;flex-wrap:wrap;gap:5px;${edE.estudiosNotes?"margin-bottom:7px;":""}">`;estChkA.forEach(([,lbl])=>{eyeBlocks+=`<span style="background:#EDE0F8;color:#6B38A8;border-radius:6px;padding:3px 10px;font-size:0.9rem;font-weight:700;">${lbl}</span>`;});eyeBlocks+=`</div>`;}
+              if(edE.estudiosNotes) eyeBlocks+=`<div style="font-size:0.85rem;color:#444;font-style:italic;">${edE.estudiosNotes}</div>`;
+              eyeBlocks+=`</div>`;
+            }
             eyeBlocks+=`<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:1rem;">
               <tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">Gastos de quirófano <span style="background:#E8F4F5;color:#0D6B72;border-radius:4px;padding:1px 6px;font-size:0.72rem;font-weight:700;">Ambos ojos</span></td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(costs.gastos)}</td></tr>
               <tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">Anestesiólogo</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(costs.anest)}</td></tr>`;
@@ -1698,27 +1710,44 @@ function render(){
                   ${MULTIFOCAL_TYPES.includes(ed.lioType)&&ed.lioAdd?"<br>➕ Adición: "+ed.lioAdd+"D":""}
                   ${ed.lioNotes?"<br>📦 "+ed.lioNotes:""}
                 </div>`:""}
-                <table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:1rem;">
-                  <tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">Gastos de quirófano</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(c.gastos)}</td></tr>
-                  <tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">Anestesiólogo</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(c.anest)}</td></tr>
-                  ${(()=>{
-                    const isFacoPrint=["Faco + LIO","Faco + LIO + Antiangio","Faco + Trabe","Faco + Vitre"].includes(ed.surgery);
-                    const basePrint=(parseFloat(c.gastos)||0)+(parseFloat(c.anest)||0)+(parseFloat(c.otrosAmt)||0);
-                    if(isFacoPrint){
-                      let rows=`<tr><td colspan="2" style="padding:8px 0 4px;font-size:0.85rem;font-weight:800;color:#0D6B72;text-transform:uppercase;letter-spacing:0.05em;">Presupuesto según lente intraocular:</td></tr>`;
-                      [["Monofocal",c.implantesMonofocal],["Tórico",c.implantesTorico],["Multifocal",c.implantesMultifocal]].forEach(([lb,v])=>{
-                        if(!v||parseFloat(v)===0) return;
-                        const t2=basePrint+(parseFloat(v)||0);
-                        rows+=`<tr style="border-bottom:1px solid #ddd;background:#F0FAF9;"><td style="padding:8px 10px;font-weight:700;font-size:0.95rem;color:#333;">Total ${lb}</td><td style="text-align:right;font-weight:900;font-size:1.35rem;color:#000;padding:8px 0;">${new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(t2)}</td></tr>`;
-                      });
-                      return rows;
-                    } else {
-                      return `<tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">Implantes / LIO</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(c.implantes)}</td></tr>`+
-                        (c.otrosAmt&&parseFloat(c.otrosAmt)>0?`<tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">${c.otrosDesc||"Otros"}</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(c.otrosAmt)}</td></tr>`:"")+
-                        `<tr style="border-top:2.5px solid #333;"><td style="padding:10px 0;font-weight:900;font-size:1.1rem;color:#000;">TOTAL</td><td style="text-align:right;font-weight:900;font-size:1.5rem;color:#000;">${total>0?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(total):"—"}</td></tr>`;
-                    }
-                  })()}
-                </table>
+                ${(()=>{
+                  const estLbls={oct:"OCT",camposVisuales:"Campos visuales",topografia:"Topografía",paquimetria:"Paquimetría",iolMaster:"IOL Master",paqueteRefractivo:"Paquete refractivo"};
+                  const estChk=Object.entries(estLbls).filter(([k])=>ed.estudios?.[k]);
+                  if(!estChk.length&&!ed.estudiosNotes) return "";
+                  let h=`<div style="margin:10px 0;padding:11px 13px;background:#F5F0FB;border:1.5px solid #C9B3E8;border-radius:8px;">`;
+                  h+=`<div style="font-size:0.75rem;font-weight:800;text-transform:uppercase;color:#6B38A8;letter-spacing:0.06em;margin-bottom:8px;">🔍 Estudios oftalmológicos</div>`;
+                  if(estChk.length){
+                    h+=`<div style="display:flex;flex-wrap:wrap;gap:5px;${ed.estudiosNotes?"margin-bottom:7px;":""}">`;
+                    estChk.forEach(([,lbl])=>{h+=`<span style="background:#EDE0F8;color:#6B38A8;border-radius:6px;padding:3px 10px;font-size:0.9rem;font-weight:700;">${lbl}</span>`;});
+                    h+=`</div>`;
+                  }
+                  if(ed.estudiosNotes) h+=`<div style="font-size:0.85rem;color:#444;font-style:italic;">${ed.estudiosNotes}</div>`;
+                  h+=`</div>`;
+                  return h;
+                })()}
+                ${(()=>{
+                  const hasCostData=(parseFloat(c.gastos)||0)+(parseFloat(c.anest)||0)+(parseFloat(c.implantes)||0)+(parseFloat(c.otrosAmt)||0)+(parseFloat(c.implantesMonofocal)||0)+(parseFloat(c.implantesTorico)||0)+(parseFloat(c.implantesMultifocal)||0)>0;
+                  if(!hasCostData) return "";
+                  const isFacoPrint=["Faco + LIO","Faco + LIO + Antiangio","Faco + Trabe","Faco + Vitre"].includes(ed.surgery);
+                  const basePrint=(parseFloat(c.gastos)||0)+(parseFloat(c.anest)||0)+(parseFloat(c.otrosAmt)||0);
+                  let rows=`<table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:1rem;">`;
+                  rows+=`<tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">Gastos de quirófano</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(c.gastos)}</td></tr>`;
+                  rows+=`<tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">Anestesiólogo</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(c.anest)}</td></tr>`;
+                  if(isFacoPrint){
+                    rows+=`<tr><td colspan="2" style="padding:8px 0 4px;font-size:0.85rem;font-weight:800;color:#0D6B72;text-transform:uppercase;letter-spacing:0.05em;">Presupuesto según lente intraocular:</td></tr>`;
+                    [["Monofocal",c.implantesMonofocal],["Tórico",c.implantesTorico],["Multifocal",c.implantesMultifocal]].forEach(([lb,v])=>{
+                      if(!v||parseFloat(v)===0) return;
+                      const t2=basePrint+(parseFloat(v)||0);
+                      rows+=`<tr style="border-bottom:1px solid #ddd;background:#F0FAF9;"><td style="padding:8px 10px;font-weight:700;font-size:0.95rem;color:#333;">Total ${lb}</td><td style="text-align:right;font-weight:900;font-size:1.35rem;color:#000;padding:8px 0;">${new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(t2)}</td></tr>`;
+                    });
+                  } else {
+                    rows+=`<tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">Implantes / LIO</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(c.implantes)}</td></tr>`;
+                    if(c.otrosAmt&&parseFloat(c.otrosAmt)>0) rows+=`<tr style="border-bottom:1px solid #ddd;"><td style="padding:7px 0;color:#333;font-size:0.95rem;">${c.otrosDesc||"Otros"}</td><td style="text-align:right;font-weight:800;font-size:1.1rem;color:#000;">${fmt(c.otrosAmt)}</td></tr>`;
+                    rows+=`<tr style="border-top:2.5px solid #333;"><td style="padding:10px 0;font-weight:900;font-size:1.1rem;color:#000;">TOTAL</td><td style="text-align:right;font-weight:900;font-size:1.5rem;color:#000;">${total>0?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(total):"—"}</td></tr>`;
+                  }
+                  rows+=`</table>`;
+                  return rows;
+                })()}
               </div>
             </div>`;
             }); // end forEach eye
@@ -1736,7 +1765,12 @@ function render(){
               <div style="font-size:1rem;color:black;font-weight:800;margin-top:4px;-webkit-print-color-adjust:exact;print-color-adjust:exact;">📞 ${r.tel1}${r.tel2?" &nbsp;·&nbsp; "+r.tel2:""}</div>
               ${r.notes?`<div style="margin-top:6px;font-size:0.82rem;color:#666;font-style:italic;">Notas: ${r.notes}</div>`:""}
             </div>
-            <div style="font-weight:800;font-size:0.78rem;text-transform:uppercase;color:#888;letter-spacing:0.05em;margin-bottom:10px;font-family:-apple-system,sans-serif;">Cotización quirúrgica</div>
+            ${(()=>{
+              const allHaveSurg=activeEyesPrint.every(eye=>!!(r.eyes?.[eye]?.surgery));
+              const anyHasStudy=activeEyesPrint.some(eye=>{const est=r.eyes?.[eye]?.estudios||{};return Object.values(est).some(Boolean)||!!(r.eyes?.[eye]?.estudiosNotes?.trim());});
+              const label=allHaveSurg&&!anyHasStudy?"Cotización quirúrgica":!allHaveSurg&&anyHasStudy?"Cotización de estudios":"Cotización";
+              return `<div style="font-weight:800;font-size:0.78rem;text-transform:uppercase;color:#888;letter-spacing:0.05em;margin-bottom:10px;font-family:-apple-system,sans-serif;">${label}</div>`;
+            })()}
             ${eyeBlocks}
             <div style="margin-top:20px;padding:14px 16px;border:2px dashed #999;border-radius:8px;font-size:0.82rem;color:#333;line-height:1.7;font-family:-apple-system,sans-serif;">
               <strong>⚠️ NOTA IMPORTANTE:</strong> Los precios indicados en esta cotización son de carácter <strong>informativo únicamente</strong> y están <strong>sujetos a cambio sin previo aviso</strong>, de acuerdo con la evolución clínica del paciente, disponibilidad de materiales y otros factores. Esta cotización no constituye un compromiso de precio ni obligación contractual. Los precios incluyen los conceptos detallados y no incluyen medicamentos ni estudios preoperatorios adicionales.
