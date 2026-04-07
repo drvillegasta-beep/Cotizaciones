@@ -1082,6 +1082,9 @@ function buildDailyView(){
     return cal;
   }
 
+  // orderedPts is shared between renderDay and the print button via closure
+  let orderedPts=[];
+
   function renderDay(){
     wrap.innerHTML="";
 
@@ -1094,11 +1097,8 @@ function buildDailyView(){
       const[py,pm,pd]=selDate.split("-");
       const pdays=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
       const pdt=new Date(parseInt(py),parseInt(pm)-1,parseInt(pd));
-      const live2=applyAuto(state.records);
-      const live2Map=Object.fromEntries(live2.map(r=>[r.id,r]));
-      // Read order directly from the DOM — what's visible on screen is what prints
-      const visibleCards=[...wrap.querySelectorAll("[data-recid]")];
-      let pts2=visibleCards.map(c=>live2Map[c.dataset.recid]).filter(r=>r&&(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye], r.eyes)));
+      // Use orderedPts directly — same array that was used to render the cards on screen
+      const pts2=orderedPts;
       if(!pts2.length){alert("Sin pacientes programados para este día.");return;}
 
       function cardHTML(r,i){
@@ -1177,9 +1177,9 @@ function buildDailyView(){
     const countD=document.createElement("div"); countD.style.cssText=`font-size:0.8rem;color:${C.stone};margin-top:2px;`; countD.textContent=`${pts.length} paciente${pts.length!==1?"s":""} programado${pts.length!==1?"s":""}`;
     header.appendChild(countD); wrap.appendChild(header);
     if(pts.length===0){const empty=document.createElement("div");empty.style.cssText=`text-align:center;padding:44px 24px;color:${C.stone};`;empty.innerHTML=`<div style="font-size:2.5rem;margin-bottom:10px;opacity:0.3;">📅</div><div style="font-weight:700;">Sin cirugías para este día</div>`;wrap.appendChild(empty);return;}
-    // Drag-to-reorder
+    // Drag-to-reorder — assign to closure variable so printBtn can access it
     const dayOrder=JSON.parse(localStorage.getItem("coe-day-order-"+selDate)||"null");
-    let orderedPts=pts.slice();
+    orderedPts=pts.slice();
     if(dayOrder){
       const ordered=[];
       dayOrder.forEach(id=>{const r=orderedPts.find(x=>x.id===id);if(r)ordered.push(r);});
