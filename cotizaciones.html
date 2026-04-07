@@ -1095,16 +1095,11 @@ function buildDailyView(){
       const pdays=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
       const pdt=new Date(parseInt(py),parseInt(pm)-1,parseInt(pd));
       const live2=applyAuto(state.records);
-      let pts2=live2.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye], r.eyes)));
+      const live2Map=Object.fromEntries(live2.map(r=>[r.id,r]));
+      // Read order directly from the DOM — what's visible on screen is what prints
+      const visibleCards=[...wrap.querySelectorAll("[data-recid]")];
+      let pts2=visibleCards.map(c=>live2Map[c.dataset.recid]).filter(r=>r&&(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye], r.eyes)));
       if(!pts2.length){alert("Sin pacientes programados para este día.");return;}
-      // Respect drag-to-reorder order (same logic as display)
-      const printDayOrder=JSON.parse(localStorage.getItem("coe-day-order-"+selDate)||"null");
-      if(printDayOrder){
-        const ordered=[];
-        printDayOrder.forEach(id=>{const rx=pts2.find(x=>x.id===id);if(rx)ordered.push(rx);});
-        pts2.forEach(rx=>{if(!ordered.find(x=>x.id===rx.id))ordered.push(rx);});
-        pts2=ordered;
-      }
 
       function cardHTML(r,i){
         const eyes=(r.activeEyes||[]).filter(eye=>r.eyes?.[eye]?.dateScheduled===selDate);
