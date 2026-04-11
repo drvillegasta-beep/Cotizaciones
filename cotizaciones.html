@@ -10,6 +10,8 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0;}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F7F5F2;color:#1A1814;overscroll-behavior:none;}
 input,select,textarea,button{font-family:inherit;}
+/* Hide print layer during normal display — no inline style needed */
+#coe-print-layer{display:none;}
 @media print{
   body > *{display:none!important;}
   #coe-print-layer{display:block!important;padding:20px;font-family:-apple-system,sans-serif;color:#1A1814;}
@@ -58,15 +60,16 @@ const TORIC_TYPES=["Tórico","Multifocal tórico","EDOF tórico","Premium person
 const MULTIFOCAL_TYPES=["Multifocal","Multifocal tórico","EDOF","EDOF tórico","Acomodativo","Premium personalizado"];
 function fmtPower(v){if(v===""||v==null)return"";const n=parseFloat(v);if(isNaN(n))return v;return(n>=0?"+":"")+n.toFixed(2);}
 const fmtCost=n=>{if(n==null||n===""||isNaN(n)||parseFloat(n)===0)return null;return new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(n);};
-const mkForm=()=>({name:"",tel1:"",tel2:"",activeEyes:[],eyeFirst:"",eyes:{OD:mkEye(),OI:mkEye()},status:"pending",notes:"",costMode:null,comprobante:null,anticipo:"",saldoPendiente:"",folioAnticipo:""}); // costMode: null=unset, "shared"=ambos ojos, "perEye"=independiente
+const mkForm=()=>({name:"",tel1:"",tel2:"",activeEyes:[],eyeFirst:"",eyes:{OD:mkEye(),OI:mkEye()},status:"pending",notes:"",costMode:null}); // costMode: null=unset, "shared"=ambos ojos, "perEye"=independiente
 
 // ── SUPABASE ──────────────────────────────────────────────────
 const SB_URL="https://ckjkdenwqicdjvodflba.supabase.co";
 const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNramtkZW53cWljZGp2b2RmbGJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MDIzMzgsImV4cCI6MjA4OTE3ODMzOH0.7pd1oAevIWY81e0DTSMBFtzSECfQNa_mOqstG_UEj-0";
 const sbHeaders={"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY};
 
-function recToRow(r){return{id:r.id,nombre:r.name||"",tel1:r.tel1||"",tel2:r.tel2||"",active_eyes:r.activeEyes||[],eye_first:r.eyeFirst||"",eyes:r.eyes||{},status:r.status||"pending",notes:r.notes||"",comprobante:r.comprobante||null,anticipo:r.anticipo||"",saldo_pendiente:r.saldoPendiente||"",folio_anticipo:r.folioAnticipo||"",updated_at:new Date().toISOString()};}
-function rowToRec(row){return{id:row.id,name:row.nombre,tel1:row.tel1||"",tel2:row.tel2||"",activeEyes:row.active_eyes||[],eyeFirst:row.eye_first||"",eyes:row.eyes||{},status:row.status||"pending",notes:row.notes||"",comprobante:row.comprobante||null,anticipo:row.anticipo||"",saldoPendiente:row.saldo_pendiente||"",folioAnticipo:row.folio_anticipo||""};}
+function recToRow(r){return{id:r.id,nombre:r.name||"",tel1:r.tel1||"",tel2:r.tel2||"",active_eyes:r.activeEyes||[],eye_first:r.eyeFirst||"",eyes:r.eyes||{},cost_mode:r.costMode||null,status:r.status||"pending",notes:r.notes||"",created_at:r.createdAt||new Date().toISOString(),updated_at:new Date().toISOString()};}
+function rowToRec(row){return{id:row.id,name:row.nombre,tel1:row.tel1||"",tel2:row.tel2||"",activeEyes:row.active_eyes||[],eyeFirst:row.eye_first||"",eyes:row.eyes||{},costMode:row.cost_mode||null,status:row.status||"pending",notes:row.notes||"",createdAt:row.created_at||""};}
+
 async function sbLoad(){
   try{
     const res=await fetch(SB_URL+"/rest/v1/cotizaciones?select=*&order=created_at.asc",{headers:sbHeaders});
@@ -83,18 +86,33 @@ async function sbLoad(){
 
 async function sbSave(rec){
   const row=recToRow(rec);
+  // Mark as pending sync
+  state.pendingIds=state.pendingIds||new Set();
+  state.failedIds=state.failedIds||new Set();
+  state.pendingIds.add(rec.id);
+  state.failedIds.delete(rec.id);
   try{
     const res=await fetch(SB_URL+"/rest/v1/cotizaciones",{
       method:"POST",headers:{...sbHeaders,"Prefer":"resolution=merge-duplicates"},
       body:JSON.stringify(row)
     });
     if(!res.ok) throw new Error(await res.text());
-  }catch(e){console.error("Supabase save error:",e);}
+    // ✅ Sync confirmed
+    state.pendingIds.delete(rec.id);
+    state.syncedIds=state.syncedIds||new Set();
+    state.syncedIds.add(rec.id);
+  }catch(e){
+    console.error("Supabase save error:",e);
+    // ⚠️ Sync failed — keep in local, flag as error
+    state.pendingIds.delete(rec.id);
+    state.failedIds.add(rec.id);
+  }
   // Always mirror to localStorage as backup
   const local=JSON.parse(localStorage.getItem("oftalmo-v3")||"[]");
   const idx=local.findIndex(x=>x.id===rec.id);
   if(idx>=0) local[idx]=rec; else local.unshift(rec);
   localStorage.setItem("oftalmo-v3",JSON.stringify(local));
+  render();
 }
 
 async function sbDelete(id){
@@ -107,7 +125,7 @@ async function sbDelete(id){
 }
 
 // ── STATE ────────────────────────────────────────────────────
-let state={tab:"list",records:[],filter:"all",search:"",modal:null,form:mkForm(),errors:{},modalEyeTab:"OD",schedModal:null,expandedDays:{},customSurgeries:[],sortBy:"date",sortDir:"desc",syncing:false,syncError:false,_awaitingBothConfirm:false,_bothConfirmed:false};
+let state={tab:"list",records:[],filter:"all",search:"",modal:null,form:mkForm(),errors:{},modalEyeTab:"OD",schedModal:null,expandedDays:{},customSurgeries:[],sortBy:"date",sortDir:"desc",syncing:false,syncError:false,_awaitingBothConfirm:false,_bothConfirmed:false,syncedIds:new Set(),pendingIds:new Set(),failedIds:new Set()};
 
 function getAllSurgeries(){return [...Object.values(SURGERY_DB).flat(),...state.customSurgeries];}
 
@@ -119,10 +137,16 @@ async function loadRecords(){
   // Then sync from Supabase
   state.syncing=true; render();
   const remote=await sbLoad();
-  // Only replace local data if Supabase has records — prevents wiping local data when Supabase is empty
   if(remote.length>0){
-    state.records=applyAuto(remote);
+    // ✅ MERGE: remote is authoritative, but preserve local-only records
+    // (records saved locally when offline that haven't reached Supabase yet)
+    const remoteIds=new Set(remote.map(r=>r.id));
+    const localOnly=state.records.filter(r=>!remoteIds.has(r.id));
+    state.records=applyAuto([...remote,...localOnly]);
     localStorage.setItem("oftalmo-v3",JSON.stringify(state.records));
+    // Mark all remote records as synced
+    state.syncedIds=state.syncedIds||new Set();
+    remote.forEach(r=>state.syncedIds.add(r.id));
   }
   // If Supabase is empty but we have local data, keep local (user needs to tap ☁️ to upload)
   state.syncing=false; render();
@@ -205,34 +229,7 @@ function migrateRecord(r){
   return {...mkForm(),...r,eyes,costMode};
 }
 
-// ── IMAGE HELPERS ─────────────────────────────────────────────
-function compressImage(file,maxPx,quality,cb){
-  const img=new Image(); const reader=new FileReader();
-  reader.onload=e=>{img.src=e.target.result;};
-  img.onload=()=>{
-    let w=img.width,h=img.height;
-    if(w>maxPx||h>maxPx){if(w>h){h=Math.round(h*maxPx/w);w=maxPx;}else{w=Math.round(w*maxPx/h);h=maxPx;}}
-    const canvas=document.createElement("canvas"); canvas.width=w; canvas.height=h;
-    canvas.getContext("2d").drawImage(img,0,0,w,h);
-    cb(canvas.toDataURL("image/jpeg",quality));
-  };
-  reader.readAsDataURL(file);
-}
-function showComprobanteModal(src,onDelete){
-  const ov=document.createElement("div"); ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;";
-  const img=document.createElement("img"); img.src=src; img.style.cssText="max-width:100%;max-height:75vh;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,0.5);";
-  const btnRow=document.createElement("div"); btnRow.style.cssText="display:flex;gap:12px;margin-top:18px;";
-  const closeB=btn("✕ Cerrar",()=>document.body.removeChild(ov),"outline",{color:"white",border:"2px solid white",background:"transparent",padding:"10px 24px"});
-  btnRow.appendChild(closeB);
-  if(onDelete){
-    const delB=btn("🗑 Eliminar comprobante",()=>{if(confirm("¿Eliminar el comprobante?"))onDelete();document.body.removeChild(ov);},"danger",{padding:"10px 20px"});
-    btnRow.appendChild(delB);
-  }
-  ov.appendChild(img); ov.appendChild(btnRow);
-  ov.addEventListener("click",e=>{if(e.target===ov)document.body.removeChild(ov);});
-  document.body.appendChild(ov);
-}
-
+// ── DOM HELPERS ───────────────────────────────────────────────
 function inp(val,onchange,placeholder,type="text",extraStyle={}){
   const i=document.createElement("input");
   i.type=type; i.value=val||""; i.placeholder=placeholder||"";
@@ -251,18 +248,13 @@ function openPrint(innerHTML){
   let layer=document.getElementById("coe-print-layer");
   if(!layer){layer=document.createElement("div");layer.id="coe-print-layer";document.body.appendChild(layer);}
   layer.innerHTML=innerHTML;
-  // Show explicitly BEFORE print — don't rely on @media print !important to override inline display:none
-  // (iOS Safari ignores that override reliably)
-  layer.style.display="block";
-  layer.style.color="#000";
-  const restore=()=>{layer.style.display="none";layer.innerHTML="";};
-  window.addEventListener("afterprint",restore,{once:true});
-  // Small delay ensures DOM is painted before print dialog opens
-  setTimeout(()=>{
-    window.print();
-    // Fallback restore in case afterprint doesn't fire (older browsers)
-    setTimeout(restore,3000);
-  },120);
+  // Double rAF ensures DOM is fully painted before the print dialog opens
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      window.print();
+      setTimeout(()=>{layer.innerHTML="";},5000);
+    });
+  });
 }
 function btn(text,onclick,variant="primary",extraStyle={}){
   const styles={primary:{background:C.teal,color:"white",border:"none"},outline:{background:"white",color:C.teal,border:`1.5px solid ${C.teal}`},danger:{background:"#FDEAEA",color:C.red,border:"1.5px solid #F0C0C0"},ghost:{background:"transparent",color:C.stone,border:`1.5px solid ${C.border}`}};
@@ -776,6 +768,11 @@ function saveRecord(){
   }
   const rec={...state.form,id:state.modal==="new"?uid():state.modal,createdAt:state.modal==="new"?new Date().toISOString():(state.records.find(r=>r.id===state.modal)?.createdAt||new Date().toISOString())};
   const next=state.modal==="new"?[rec,...state.records]:state.records.map(r=>r.id===state.modal?rec:r);
+  // Mark as pending sync until Supabase confirms
+  state.pendingIds=state.pendingIds||new Set();
+  state.syncedIds=state.syncedIds||new Set();
+  state.pendingIds.add(rec.id);
+  state.syncedIds.delete(rec.id);
   saveRecords(next); closeModal();
   saveRecordRemote(rec);
 }
@@ -928,53 +925,6 @@ function buildModalDOM(){
   ta.addEventListener("input",e=>state.form.notes=e.target.value);
   secNot.appendChild(ta); box.appendChild(body);
 
-  // ── ANTICIPO / COMPROBANTE ──────────────────────────────────
-  const secAnticipo=makeSec("💳 Anticipo / Comprobante"); body.appendChild(secAnticipo);
-  const antiDesc=document.createElement("div"); antiDesc.style.cssText=`font-size:0.78rem;color:${C.stone};margin-bottom:10px;`; antiDesc.textContent="Adjunta foto del ticket o transferencia de anticipo para habilitar la programación.";
-  secAnticipo.appendChild(antiDesc);
-
-  function renderAnticipo(){
-    const existing=secAnticipo.querySelector(".anticipo-content");
-    if(existing) secAnticipo.removeChild(existing);
-    const wrap=document.createElement("div"); wrap.className="anticipo-content";
-    if(state.form.comprobante){
-      // Show thumbnail + actions
-      const thumbRow=document.createElement("div"); thumbRow.style.cssText="display:flex;align-items:center;gap:12px;padding:10px 12px;background:#F0FBF5;border:1.5px solid #B8E0C8;border-radius:10px;";
-      const thumb=document.createElement("img"); thumb.src=state.form.comprobante; thumb.style.cssText="width:64px;height:64px;object-fit:cover;border-radius:7px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.15);";
-      thumb.addEventListener("click",()=>showComprobanteModal(state.form.comprobante,()=>{state.form.comprobante=null;renderAnticipo();}));
-      const info=document.createElement("div"); info.style.flex="1";
-      info.innerHTML=`<div style="font-weight:800;color:${C.green};font-size:0.88rem;">✅ Comprobante adjunto</div><div style="font-size:0.75rem;color:${C.stone};margin-top:2px;">Toca la imagen para ampliar o eliminar</div>`;
-      const replaceBtn=btn("🔄 Reemplazar",()=>fileInput.click(),"ghost",{padding:"6px 10px",fontSize:"0.75rem",border:`1.5px solid ${C.border}`,borderRadius:"8px"});
-      thumbRow.appendChild(thumb); thumbRow.appendChild(info); thumbRow.appendChild(replaceBtn);
-      wrap.appendChild(thumbRow);
-    } else {
-      // Upload button
-      const uploadBtn=document.createElement("label");
-      uploadBtn.style.cssText=`display:inline-flex;align-items:center;gap:8px;padding:11px 18px;background:white;border:2px dashed ${C.teal};border-radius:10px;cursor:pointer;font-weight:700;color:${C.teal};font-size:0.88rem;width:100%;box-sizing:border-box;justify-content:center;`;
-      uploadBtn.innerHTML=`<span style="font-size:1.2rem;">📷</span> Tomar foto o seleccionar imagen`;
-      uploadBtn.appendChild(fileInput);
-      wrap.appendChild(uploadBtn);
-    }
-    secAnticipo.appendChild(wrap);
-  }
-
-  const fileInput=document.createElement("input"); fileInput.type="file"; fileInput.accept="image/*"; fileInput.capture="environment"; fileInput.style.display="none";
-  fileInput.addEventListener("change",e=>{
-    const f=e.target.files[0]; if(!f)return;
-    compressImage(f,1200,0.78,dataUrl=>{state.form.comprobante=dataUrl;renderAnticipo();});
-    fileInput.value="";
-  });
-  renderAnticipo();
-
-  // 3 data fields
-  const antiGrid=document.createElement("div"); antiGrid.style.cssText="display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin-top:10px;";
-  antiGrid.appendChild(fldWrap("Anticipo pagado ($)",inp(state.form.anticipo||"",v=>state.form.anticipo=v,"12,000","text",{fontSize:"15px"})));
-  antiGrid.appendChild(fldWrap("Saldo pendiente ($)",inp(state.form.saldoPendiente||"",v=>state.form.saldoPendiente=v,"12,000","text",{fontSize:"15px"})));
-  antiGrid.appendChild(fldWrap("Folio / Referencia",inp(state.form.folioAnticipo||"",v=>state.form.folioAnticipo=v,"58718","text",{fontSize:"15px"})));
-  secAnticipo.appendChild(antiGrid);
-
-  box.appendChild(body);
-
   const mFoot=document.createElement("div"); mFoot.style.cssText=`padding:11px 18px 16px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid ${C.border};flex-wrap:wrap;`;
   if(state.modal!=="new")mFoot.appendChild(btn("🗑 Eliminar",deleteRecord,"danger"));
   mFoot.appendChild(btn("Cancelar",closeModal,"outline"));
@@ -1081,19 +1031,6 @@ function buildDayCard(r,selDate,index){
   });
   card.appendChild(eyeGrid);
   if(r.notes){const nf=document.createElement("div");nf.style.cssText=`padding:8px 16px 12px;border-top:1px solid ${C.border};`;nf.innerHTML=`<span style="font-size:0.75rem;color:${C.stone};font-weight:700;">Notas: </span><span style="font-size:0.78rem;">${r.notes}</span>`;card.appendChild(nf);}
-  if(r.comprobante||r.anticipo){
-    const cf=document.createElement("div"); cf.style.cssText=`padding:8px 16px 12px;border-top:1px solid ${C.border};display:flex;align-items:center;gap:10px;flex-wrap:wrap;`;
-    if(r.comprobante){
-      const cThumb=document.createElement("img"); cThumb.src=r.comprobante; cThumb.style.cssText="width:48px;height:48px;object-fit:cover;border-radius:6px;cursor:pointer;box-shadow:0 1px 6px rgba(0,0,0,0.15);flex-shrink:0;";
-      cThumb.addEventListener("click",()=>showComprobanteModal(r.comprobante,null));
-      cf.appendChild(cThumb);
-    }
-    const cInfo=document.createElement("div"); cInfo.style.cssText="display:flex;flex-direction:column;gap:2px;";
-    cInfo.innerHTML=`<span style="font-size:0.75rem;color:${C.green};font-weight:800;">📷 Comprobante de anticipo</span>`;
-    if(r.anticipo) cInfo.innerHTML+=`<span style="font-size:0.78rem;font-weight:700;">Anticipo: <strong>$${r.anticipo}</strong>${r.saldoPendiente?` · Saldo: <strong>$${r.saldoPendiente}</strong>`:""}</span>`;
-    if(r.folioAnticipo) cInfo.innerHTML+=`<span style="font-size:0.74rem;color:${C.stone};">Folio: ${r.folioAnticipo}</span>`;
-    cf.appendChild(cInfo); card.appendChild(cf);
-  }
   return card;
 }
 
@@ -1168,9 +1105,6 @@ function buildDailyView(){
     return cal;
   }
 
-  // orderedPts is shared between renderDay and the print button via closure
-  let orderedPts=[];
-
   function renderDay(){
     wrap.innerHTML="";
 
@@ -1183,9 +1117,17 @@ function buildDailyView(){
       const[py,pm,pd]=selDate.split("-");
       const pdays=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
       const pdt=new Date(parseInt(py),parseInt(pm)-1,parseInt(pd));
-      // Use orderedPts directly — same array that was used to render the cards on screen
-      const pts2=orderedPts;
+      const live2=applyAuto(state.records);
+      let pts2=live2.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye], r.eyes)));
       if(!pts2.length){alert("Sin pacientes programados para este día.");return;}
+      // ✅ Apply saved drag-and-drop order at print time
+      const printDayOrder=JSON.parse(localStorage.getItem("coe-day-order-"+selDate)||"null");
+      if(printDayOrder){
+        const ordered2=[];
+        printDayOrder.forEach(id=>{const rx=pts2.find(x=>x.id===id);if(rx)ordered2.push(rx);});
+        pts2.forEach(rx=>{if(!ordered2.find(x=>x.id===rx.id))ordered2.push(rx);});
+        pts2=ordered2;
+      }
 
       function cardHTML(r,i){
         const eyes=(r.activeEyes||[]).filter(eye=>r.eyes?.[eye]?.dateScheduled===selDate);
@@ -1263,9 +1205,9 @@ function buildDailyView(){
     const countD=document.createElement("div"); countD.style.cssText=`font-size:0.8rem;color:${C.stone};margin-top:2px;`; countD.textContent=`${pts.length} paciente${pts.length!==1?"s":""} programado${pts.length!==1?"s":""}`;
     header.appendChild(countD); wrap.appendChild(header);
     if(pts.length===0){const empty=document.createElement("div");empty.style.cssText=`text-align:center;padding:44px 24px;color:${C.stone};`;empty.innerHTML=`<div style="font-size:2.5rem;margin-bottom:10px;opacity:0.3;">📅</div><div style="font-weight:700;">Sin cirugías para este día</div>`;wrap.appendChild(empty);return;}
-    // Drag-to-reorder — assign to closure variable so printBtn can access it
+    // Drag-to-reorder
     const dayOrder=JSON.parse(localStorage.getItem("coe-day-order-"+selDate)||"null");
-    orderedPts=pts.slice();
+    let orderedPts=pts.slice();
     if(dayOrder){
       const ordered=[];
       dayOrder.forEach(id=>{const r=orderedPts.find(x=>x.id===id);if(r)ordered.push(r);});
@@ -1587,7 +1529,25 @@ function render(){
         // Row 1: name + status
         const row1=document.createElement("div"); row1.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
         const nameEl=document.createElement("div"); nameEl.style.cssText="font-weight:800;font-size:0.95rem;"; nameEl.textContent=r.name;
-        row1.appendChild(nameEl); row1.appendChild(statusBadge(r.status));
+        // ── Sync indicator ☁️ / ⚠️ / ⏳ ──
+        const sIds=state.syncedIds||new Set();
+        const pIds=state.pendingIds||new Set();
+        const fIds=state.failedIds||new Set();
+        const syncDot=document.createElement("span");
+        if(fIds.has(r.id)){
+          syncDot.textContent="⚠️";syncDot.title="Error al sincronizar con Supabase";
+          syncDot.style.cssText="font-size:0.75rem;cursor:default;";
+        } else if(pIds.has(r.id)){
+          syncDot.textContent="⏳";syncDot.title="Guardando en Supabase…";
+          syncDot.style.cssText="font-size:0.75rem;cursor:default;opacity:0.7;";
+        } else if(sIds.has(r.id)){
+          syncDot.textContent="☁️";syncDot.title="Sincronizado con Supabase";
+          syncDot.style.cssText="font-size:0.75rem;cursor:default;opacity:0.65;";
+        } else {
+          syncDot.textContent="☁️";syncDot.title="Estado de sincronización desconocido";
+          syncDot.style.cssText="font-size:0.75rem;cursor:default;opacity:0.3;";
+        }
+        row1.appendChild(nameEl); row1.appendChild(statusBadge(r.status)); row1.appendChild(syncDot);
         left.appendChild(row1);
 
         // Row 2: per-eye info with risk badge
@@ -1612,16 +1572,6 @@ function render(){
         if(best&&r.status!=="done"&&dias!==null){row3.innerHTML+=`<span style="font-weight:700;color:${dCol(best)};">${dias<0?`Hace ${Math.abs(dias)}d`:dias===0?"Hoy":`En ${dias}d`}</span>`;}
         if(total>0){const tt=document.createElement("span");tt.style.cssText="font-weight:800;color:#1A1814;";tt.textContent=fmt(total)||"";row3.appendChild(tt);}
         if(noA&&r.status!=="done"){row3.innerHTML+=`<span style="background:#FEF0E6;color:${C.orange};border-radius:6px;padding:2px 7px;font-size:0.7rem;font-weight:800;">⚠️ Sin anestesia</span>`;}
-        if(r.comprobante||r.anticipo){
-          const aLabel=document.createElement("span"); aLabel.style.cssText=`background:#F0FBF5;color:${C.green};border-radius:6px;padding:2px 7px;font-size:0.7rem;font-weight:800;cursor:pointer;`;
-          let aText="📷 Anticipo";
-          if(r.anticipo) aText+=` $${r.anticipo}`;
-          if(r.saldoPendiente) aText+=` · Saldo $${r.saldoPendiente}`;
-          if(r.folioAnticipo) aText+=` · Folio ${r.folioAnticipo}`;
-          aLabel.textContent=aText; aLabel.title="Ver comprobante de anticipo";
-          if(r.comprobante) aLabel.addEventListener("click",e=>{e.stopPropagation();showComprobanteModal(r.comprobante,null);});
-          row3.appendChild(aLabel);
-        }
         if(r.tel1||r.tel2){row3.innerHTML+=`<span>${[r.tel1,r.tel2].filter(Boolean).join(" · ")}</span>`;}
         left.appendChild(row3);
         row.appendChild(left);
