@@ -1535,8 +1535,9 @@ function render(){
         const fIds=state.failedIds||new Set();
         const syncDot=document.createElement("span");
         if(fIds.has(r.id)){
-          syncDot.textContent="⚠️";syncDot.title="Error al sincronizar con Supabase";
-          syncDot.style.cssText="font-size:0.75rem;cursor:default;";
+          syncDot.textContent="⚠️";syncDot.title="Error — toca para reintentar";
+          syncDot.style.cssText="font-size:0.75rem;cursor:pointer;";
+          syncDot.addEventListener("click",async e=>{e.stopPropagation();syncDot.textContent="⏳";syncDot.style.cursor="default";await sbSave(r);});
         } else if(pIds.has(r.id)){
           syncDot.textContent="⏳";syncDot.title="Guardando en Supabase…";
           syncDot.style.cssText="font-size:0.75rem;cursor:default;opacity:0.7;";
@@ -1544,8 +1545,9 @@ function render(){
           syncDot.textContent="☁️";syncDot.title="Sincronizado con Supabase";
           syncDot.style.cssText="font-size:0.75rem;cursor:default;opacity:0.65;";
         } else {
-          syncDot.textContent="☁️";syncDot.title="Estado de sincronización desconocido";
-          syncDot.style.cssText="font-size:0.75rem;cursor:default;opacity:0.3;";
+          syncDot.textContent="🔴";syncDot.title="Sin confirmar — toca para subir";
+          syncDot.style.cssText="font-size:0.75rem;cursor:pointer;";
+          syncDot.addEventListener("click",async e=>{e.stopPropagation();syncDot.textContent="⏳";syncDot.style.cursor="default";await sbSave(r);});
         }
         row1.appendChild(nameEl); row1.appendChild(statusBadge(r.status)); row1.appendChild(syncDot);
         left.appendChild(row1);
