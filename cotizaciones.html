@@ -10,8 +10,6 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0;}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F7F5F2;color:#1A1814;overscroll-behavior:none;}
 input,select,textarea,button{font-family:inherit;}
-/* Hide print layer during normal display — no inline style needed */
-#coe-print-layer{display:none;}
 @media print{
   body > *{display:none!important;}
   #coe-print-layer{display:block!important;padding:20px;font-family:-apple-system,sans-serif;color:#1A1814;}
@@ -51,7 +49,7 @@ const C={
 const fmt=n=>(n!=null&&n!==""&&!isNaN(n))?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(n):null;
 const fmtD=d=>{if(!d)return"";const[y,m,day]=d.split("-");return`${parseInt(day)} ${["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][parseInt(m)-1]} ${y}`;};
 const fmtDL=d=>{if(!d)return"";const[y,m,day]=d.split("-");return`${parseInt(day)} de ${["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"][parseInt(m)-1]} de ${y}`;};
-const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
+const uid=()=>crypto.randomUUID();
 const toStr=()=>new Date().toISOString().split("T")[0];
 const isPast=d=>d&&d<toStr();
 const dDiff=d=>{if(!d)return null;return Math.ceil((new Date(d)-new Date())/864e5);};
@@ -67,8 +65,8 @@ const SB_URL="https://ckjkdenwqicdjvodflba.supabase.co";
 const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNramtkZW53cWljZGp2b2RmbGJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MDIzMzgsImV4cCI6MjA4OTE3ODMzOH0.7pd1oAevIWY81e0DTSMBFtzSECfQNa_mOqstG_UEj-0";
 const sbHeaders={"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY};
 
-function recToRow(r){return{id:r.id,nombre:r.name||"",tel1:r.tel1||"",tel2:r.tel2||"",active_eyes:r.activeEyes||[],eye_first:r.eyeFirst||"",eyes:r.eyes||{},cost_mode:r.costMode||null,status:r.status||"pending",notes:r.notes||"",created_at:r.createdAt||new Date().toISOString(),updated_at:new Date().toISOString()};}
-function rowToRec(row){return{id:row.id,name:row.nombre,tel1:row.tel1||"",tel2:row.tel2||"",activeEyes:row.active_eyes||[],eyeFirst:row.eye_first||"",eyes:row.eyes||{},costMode:row.cost_mode||null,status:row.status||"pending",notes:row.notes||"",createdAt:row.created_at||""};}
+function recToRow(r){return{id:r.id,nombre:r.name||"",tel1:r.tel1||"",tel2:r.tel2||"",active_eyes:r.activeEyes||[],eye_first:r.eyeFirst||"",eyes:r.eyes||{},status:r.status||"pending",notes:r.notes||"",cost_mode:r.costMode||null,updated_at:new Date().toISOString()};}
+function rowToRec(row){return{id:row.id,name:row.nombre,tel1:row.tel1||"",tel2:row.tel2||"",activeEyes:row.active_eyes||[],eyeFirst:row.eye_first||"",eyes:row.eyes||{},status:row.status||"pending",notes:row.notes||"",costMode:row.cost_mode||null};}
 
 async function sbLoad(){
   try{
@@ -86,33 +84,30 @@ async function sbLoad(){
 
 async function sbSave(rec){
   const row=recToRow(rec);
-  // Mark as pending sync
-  state.pendingIds=state.pendingIds||new Set();
-  state.failedIds=state.failedIds||new Set();
-  state.pendingIds.add(rec.id);
-  state.failedIds.delete(rec.id);
   try{
     const res=await fetch(SB_URL+"/rest/v1/cotizaciones",{
       method:"POST",headers:{...sbHeaders,"Prefer":"resolution=merge-duplicates"},
       body:JSON.stringify(row)
     });
-    if(!res.ok) throw new Error(await res.text());
-    // ✅ Sync confirmed
-    state.pendingIds.delete(rec.id);
-    state.syncedIds=state.syncedIds||new Set();
-    state.syncedIds.add(rec.id);
+    if(!res.ok){
+      const errText=await res.text();
+      console.error("Supabase save error:",errText);
+      state.syncError=true; render();
+      setTimeout(()=>{state.syncError=false;render();},6000);
+      // Guardar en localStorage de todas formas
+    } else {
+      state.syncError=false;
+    }
   }catch(e){
     console.error("Supabase save error:",e);
-    // ⚠️ Sync failed — keep in local, flag as error
-    state.pendingIds.delete(rec.id);
-    state.failedIds.add(rec.id);
+    state.syncError=true; render();
+    setTimeout(()=>{state.syncError=false;render();},6000);
   }
   // Always mirror to localStorage as backup
   const local=JSON.parse(localStorage.getItem("oftalmo-v3")||"[]");
   const idx=local.findIndex(x=>x.id===rec.id);
   if(idx>=0) local[idx]=rec; else local.unshift(rec);
   localStorage.setItem("oftalmo-v3",JSON.stringify(local));
-  render();
 }
 
 async function sbDelete(id){
@@ -125,7 +120,7 @@ async function sbDelete(id){
 }
 
 // ── STATE ────────────────────────────────────────────────────
-let state={tab:"list",records:[],filter:"all",search:"",modal:null,form:mkForm(),errors:{},modalEyeTab:"OD",schedModal:null,expandedDays:{},customSurgeries:[],sortBy:"date",sortDir:"desc",syncing:false,syncError:false,_awaitingBothConfirm:false,_bothConfirmed:false,syncedIds:new Set(),pendingIds:new Set(),failedIds:new Set()};
+let state={tab:"list",records:[],filter:"all",search:"",modal:null,form:mkForm(),errors:{},modalEyeTab:"OD",schedModal:null,expandedDays:{},customSurgeries:[],sortBy:"date",sortDir:"desc",syncing:false,syncError:false,_awaitingBothConfirm:false,_bothConfirmed:false};
 
 function getAllSurgeries(){return [...Object.values(SURGERY_DB).flat(),...state.customSurgeries];}
 
@@ -138,17 +133,20 @@ async function loadRecords(){
   state.syncing=true; render();
   const remote=await sbLoad();
   if(remote.length>0){
-    // ✅ MERGE: remote is authoritative, but preserve local-only records
-    // (records saved locally when offline that haven't reached Supabase yet)
+    // MERGE: Supabase es la fuente principal, pero conservamos registros
+    // que existen solo en local (ej. recién guardados que aún no subieron)
     const remoteIds=new Set(remote.map(r=>r.id));
     const localOnly=state.records.filter(r=>!remoteIds.has(r.id));
-    state.records=applyAuto([...remote,...localOnly]);
-    localStorage.setItem("oftalmo-v3",JSON.stringify(state.records));
-    // Mark all remote records as synced
-    state.syncedIds=state.syncedIds||new Set();
-    remote.forEach(r=>state.syncedIds.add(r.id));
+    const merged=applyAuto([...remote,...localOnly]);
+    state.records=merged;
+    localStorage.setItem("oftalmo-v3",JSON.stringify(merged));
+    // Subir a Supabase los registros que solo existen en local
+    if(localOnly.length>0){
+      console.log("Subiendo "+localOnly.length+" registro(s) locales a Supabase…");
+      localOnly.forEach(rec=>sbSave(rec));
+    }
   }
-  // If Supabase is empty but we have local data, keep local (user needs to tap ☁️ to upload)
+  // Si Supabase está vacío pero hay datos locales, conservarlos
   state.syncing=false; render();
 }
 function saveCustomSurgeries(){localStorage.setItem("oftalmo-custom-surg",JSON.stringify(state.customSurgeries));}
@@ -246,15 +244,13 @@ function sel(val,onchange,options,extraStyle={}){
 }
 function openPrint(innerHTML){
   let layer=document.getElementById("coe-print-layer");
-  if(!layer){layer=document.createElement("div");layer.id="coe-print-layer";document.body.appendChild(layer);}
+  if(!layer){layer=document.createElement("div");layer.id="coe-print-layer";layer.style.display="none";document.body.appendChild(layer);}
   layer.innerHTML=innerHTML;
-  // Double rAF ensures DOM is fully painted before the print dialog opens
-  requestAnimationFrame(()=>{
-    requestAnimationFrame(()=>{
-      window.print();
-      setTimeout(()=>{layer.innerHTML="";},5000);
-    });
-  });
+  // Small delay ensures DOM is painted before print dialog opens
+  setTimeout(()=>{
+    window.print();
+    setTimeout(()=>{layer.innerHTML="";},2000);
+  },120);
 }
 function btn(text,onclick,variant="primary",extraStyle={}){
   const styles={primary:{background:C.teal,color:"white",border:"none"},outline:{background:"white",color:C.teal,border:`1.5px solid ${C.teal}`},danger:{background:"#FDEAEA",color:C.red,border:"1.5px solid #F0C0C0"},ghost:{background:"transparent",color:C.stone,border:`1.5px solid ${C.border}`}};
@@ -768,11 +764,6 @@ function saveRecord(){
   }
   const rec={...state.form,id:state.modal==="new"?uid():state.modal,createdAt:state.modal==="new"?new Date().toISOString():(state.records.find(r=>r.id===state.modal)?.createdAt||new Date().toISOString())};
   const next=state.modal==="new"?[rec,...state.records]:state.records.map(r=>r.id===state.modal?rec:r);
-  // Mark as pending sync until Supabase confirms
-  state.pendingIds=state.pendingIds||new Set();
-  state.syncedIds=state.syncedIds||new Set();
-  state.pendingIds.add(rec.id);
-  state.syncedIds.delete(rec.id);
   saveRecords(next); closeModal();
   saveRecordRemote(rec);
 }
@@ -1118,16 +1109,8 @@ function buildDailyView(){
       const pdays=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
       const pdt=new Date(parseInt(py),parseInt(pm)-1,parseInt(pd));
       const live2=applyAuto(state.records);
-      let pts2=live2.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye], r.eyes)));
+      const pts2=live2.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye], r.eyes)));
       if(!pts2.length){alert("Sin pacientes programados para este día.");return;}
-      // ✅ Apply saved drag-and-drop order at print time
-      const printDayOrder=JSON.parse(localStorage.getItem("coe-day-order-"+selDate)||"null");
-      if(printDayOrder){
-        const ordered2=[];
-        printDayOrder.forEach(id=>{const rx=pts2.find(x=>x.id===id);if(rx)ordered2.push(rx);});
-        pts2.forEach(rx=>{if(!ordered2.find(x=>x.id===rx.id))ordered2.push(rx);});
-        pts2=ordered2;
-      }
 
       function cardHTML(r,i){
         const eyes=(r.activeEyes||[]).filter(eye=>r.eyes?.[eye]?.dateScheduled===selDate);
@@ -1529,27 +1512,7 @@ function render(){
         // Row 1: name + status
         const row1=document.createElement("div"); row1.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
         const nameEl=document.createElement("div"); nameEl.style.cssText="font-weight:800;font-size:0.95rem;"; nameEl.textContent=r.name;
-        // ── Sync indicator ☁️ / ⚠️ / ⏳ ──
-        const sIds=state.syncedIds||new Set();
-        const pIds=state.pendingIds||new Set();
-        const fIds=state.failedIds||new Set();
-        const syncDot=document.createElement("span");
-        if(fIds.has(r.id)){
-          syncDot.textContent="⚠️";syncDot.title="Error — toca para reintentar";
-          syncDot.style.cssText="font-size:0.75rem;cursor:pointer;";
-          syncDot.addEventListener("click",async e=>{e.stopPropagation();syncDot.textContent="⏳";syncDot.style.cursor="default";await sbSave(r);});
-        } else if(pIds.has(r.id)){
-          syncDot.textContent="⏳";syncDot.title="Guardando en Supabase…";
-          syncDot.style.cssText="font-size:0.75rem;cursor:default;opacity:0.7;";
-        } else if(sIds.has(r.id)){
-          syncDot.textContent="☁️";syncDot.title="Sincronizado con Supabase";
-          syncDot.style.cssText="font-size:0.75rem;cursor:default;opacity:0.65;";
-        } else {
-          syncDot.textContent="🔴";syncDot.title="Sin confirmar — toca para subir";
-          syncDot.style.cssText="font-size:0.75rem;cursor:pointer;";
-          syncDot.addEventListener("click",async e=>{e.stopPropagation();syncDot.textContent="⏳";syncDot.style.cursor="default";await sbSave(r);});
-        }
-        row1.appendChild(nameEl); row1.appendChild(statusBadge(r.status)); row1.appendChild(syncDot);
+        row1.appendChild(nameEl); row1.appendChild(statusBadge(r.status));
         left.appendChild(row1);
 
         // Row 2: per-eye info with risk badge
