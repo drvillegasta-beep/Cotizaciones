@@ -65,8 +65,8 @@ const SB_URL="https://ckjkdenwqicdjvodflba.supabase.co";
 const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNramtkZW53cWljZGp2b2RmbGJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MDIzMzgsImV4cCI6MjA4OTE3ODMzOH0.7pd1oAevIWY81e0DTSMBFtzSECfQNa_mOqstG_UEj-0";
 const sbHeaders={"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY};
 
-function recToRow(r){return{id:r.id,nombre:r.name||"",tel1:r.tel1||"",tel2:r.tel2||"",active_eyes:r.activeEyes||[],eye_first:r.eyeFirst||"",eyes:r.eyes||{},status:r.status||"pending",notes:r.notes||"",cost_mode:r.costMode||null,updated_at:new Date().toISOString()};}
-function rowToRec(row){return{id:row.id,name:row.nombre,tel1:row.tel1||"",tel2:row.tel2||"",activeEyes:row.active_eyes||[],eyeFirst:row.eye_first||"",eyes:row.eyes||{},status:row.status||"pending",notes:row.notes||"",costMode:row.cost_mode||null};}
+function recToRow(r){return{id:r.id,nombre:r.name||"",tel1:r.tel1||"",tel2:r.tel2||"",active_eyes:r.activeEyes||[],eye_first:r.eyeFirst||"",eyes:r.eyes||{},status:r.status||"pending",notes:r.notes||"",updated_at:new Date().toISOString()};}
+function rowToRec(row){return{id:row.id,name:row.nombre,tel1:row.tel1||"",tel2:row.tel2||"",activeEyes:row.active_eyes||[],eyeFirst:row.eye_first||"",eyes:row.eyes||{},status:row.status||"pending",notes:row.notes||""};}
 
 async function sbLoad(){
   try{
@@ -84,30 +84,31 @@ async function sbLoad(){
 
 async function sbSave(rec){
   const row=recToRow(rec);
+  let savedOk=false;
   try{
     const res=await fetch(SB_URL+"/rest/v1/cotizaciones",{
       method:"POST",headers:{...sbHeaders,"Prefer":"resolution=merge-duplicates"},
       body:JSON.stringify(row)
     });
     if(!res.ok){
-      const errText=await res.text();
-      console.error("Supabase save error:",errText);
+      const errBody=await res.text();
+      console.error("[COE] ❌ Supabase FAILED ("+res.status+"):",errBody);
       state.syncError=true; render();
-      setTimeout(()=>{state.syncError=false;render();},6000);
-      // Guardar en localStorage de todas formas
+      setTimeout(()=>{state.syncError=false;render();},8000);
     } else {
-      state.syncError=false;
+      savedOk=true;
+      console.log("[COE] ✅ Guardado OK:",rec.id,(rec.name||""));
     }
   }catch(e){
-    console.error("Supabase save error:",e);
+    console.error("[COE] ❌ Red error:",e.message);
     state.syncError=true; render();
-    setTimeout(()=>{state.syncError=false;render();},6000);
+    setTimeout(()=>{state.syncError=false;render();},8000);
   }
-  // Always mirror to localStorage as backup
   const local=JSON.parse(localStorage.getItem("oftalmo-v3")||"[]");
   const idx=local.findIndex(x=>x.id===rec.id);
   if(idx>=0) local[idx]=rec; else local.unshift(rec);
   localStorage.setItem("oftalmo-v3",JSON.stringify(local));
+  return savedOk;
 }
 
 async function sbDelete(id){
@@ -126,27 +127,22 @@ function getAllSurgeries(){return [...Object.values(SURGERY_DB).flat(),...state.
 
 async function loadRecords(){
   try{state.customSurgeries=JSON.parse(localStorage.getItem("oftalmo-custom-surg")||"[]");}catch(e){state.customSurgeries=[];}
-  // Load from localStorage first for instant display
   try{state.records=JSON.parse(localStorage.getItem("oftalmo-v3")||"[]");}catch(e){state.records=[];}
   state.records=applyAuto(state.records); render();
-  // Then sync from Supabase
   state.syncing=true; render();
   const remote=await sbLoad();
   if(remote.length>0){
-    // MERGE: Supabase es la fuente principal, pero conservamos registros
-    // que existen solo en local (ej. recién guardados que aún no subieron)
+    // MERGE: conservar registros que solo existen en local
     const remoteIds=new Set(remote.map(r=>r.id));
     const localOnly=state.records.filter(r=>!remoteIds.has(r.id));
     const merged=applyAuto([...remote,...localOnly]);
     state.records=merged;
     localStorage.setItem("oftalmo-v3",JSON.stringify(merged));
-    // Subir a Supabase los registros que solo existen en local
     if(localOnly.length>0){
-      console.log("Subiendo "+localOnly.length+" registro(s) locales a Supabase…");
-      localOnly.forEach(rec=>sbSave(rec));
+      console.log("[COE] "+localOnly.length+" registro(s) solo en local — subiendo a Supabase…");
+      for(const rec of localOnly){ await sbSave(rec); }
     }
   }
-  // Si Supabase está vacío pero hay datos locales, conservarlos
   state.syncing=false; render();
 }
 function saveCustomSurgeries(){localStorage.setItem("oftalmo-custom-surg",JSON.stringify(state.customSurgeries));}
