@@ -49,7 +49,7 @@ const C={
 const fmt=n=>(n!=null&&n!==""&&!isNaN(n))?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(n):null;
 const fmtD=d=>{if(!d)return"";const[y,m,day]=d.split("-");return`${parseInt(day)} ${["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][parseInt(m)-1]} ${y}`;};
 const fmtDL=d=>{if(!d)return"";const[y,m,day]=d.split("-");return`${parseInt(day)} de ${["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"][parseInt(m)-1]} de ${y}`;};
-const uid=()=>crypto.randomUUID();
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
 const toStr=()=>new Date().toISOString().split("T")[0];
 const isPast=d=>d&&d<toStr();
 const dDiff=d=>{if(!d)return null;return Math.ceil((new Date(d)-new Date())/864e5);};
@@ -82,6 +82,13 @@ async function sbLoad(){
   }
 }
 
+function showToast(msg,color){
+  const t=document.createElement("div");
+  t.textContent=msg;
+  t.style.cssText="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:"+color+";color:white;padding:11px 22px;border-radius:10px;font-size:0.87rem;font-weight:700;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.3);max-width:92vw;text-align:center;";
+  document.body.appendChild(t);
+  setTimeout(()=>{t.style.cssText+=";opacity:0;transition:opacity 0.5s;";setTimeout(()=>t.remove(),500);},4500);
+}
 async function sbSave(rec){
   const row=recToRow(rec);
   let savedOk=false;
@@ -92,15 +99,18 @@ async function sbSave(rec){
     });
     if(!res.ok){
       const errBody=await res.text();
-      console.error("[COE] ❌ Supabase FAILED ("+res.status+"):",errBody);
+      console.error("[COE] ❌ FAILED ("+res.status+"):",errBody);
+      showToast("❌ Error nube "+res.status+": "+errBody.slice(0,70),"#C03838");
       state.syncError=true; render();
       setTimeout(()=>{state.syncError=false;render();},8000);
     } else {
       savedOk=true;
-      console.log("[COE] ✅ Guardado OK:",rec.id,(rec.name||""));
+      state.cloudIds.add(rec.id);
+      console.log("[COE] ✅ Nube OK:",rec.id,(rec.name||""));
     }
   }catch(e){
-    console.error("[COE] ❌ Red error:",e.message);
+    console.error("[COE] ❌ Red:",e.message);
+    showToast("❌ Sin conexión: "+e.message,"#C03838");
     state.syncError=true; render();
     setTimeout(()=>{state.syncError=false;render();},8000);
   }
@@ -121,7 +131,7 @@ async function sbDelete(id){
 }
 
 // ── STATE ────────────────────────────────────────────────────
-let state={tab:"list",records:[],filter:"all",search:"",modal:null,form:mkForm(),errors:{},modalEyeTab:"OD",schedModal:null,expandedDays:{},customSurgeries:[],sortBy:"date",sortDir:"desc",syncing:false,syncError:false,_awaitingBothConfirm:false,_bothConfirmed:false};
+let state={tab:"list",records:[],filter:"all",search:"",modal:null,form:mkForm(),errors:{},modalEyeTab:"OD",schedModal:null,expandedDays:{},customSurgeries:[],sortBy:"date",sortDir:"desc",syncing:false,syncError:false,cloudIds:new Set(),_awaitingBothConfirm:false,_bothConfirmed:false};
 
 function getAllSurgeries(){return [...Object.values(SURGERY_DB).flat(),...state.customSurgeries];}
 
@@ -132,15 +142,20 @@ async function loadRecords(){
   state.syncing=true; render();
   const remote=await sbLoad();
   if(remote.length>0){
-    // MERGE: conservar registros que solo existen en local
     const remoteIds=new Set(remote.map(r=>r.id));
+    // Marcar cuáles están confirmados en Supabase
+    state.cloudIds=remoteIds;
     const localOnly=state.records.filter(r=>!remoteIds.has(r.id));
     const merged=applyAuto([...remote,...localOnly]);
     state.records=merged;
     localStorage.setItem("oftalmo-v3",JSON.stringify(merged));
     if(localOnly.length>0){
-      console.log("[COE] "+localOnly.length+" registro(s) solo en local — subiendo a Supabase…");
-      for(const rec of localOnly){ await sbSave(rec); }
+      console.log("[COE] "+localOnly.length+" reg. locales sin nube — subiendo…");
+      for(const rec of localOnly){
+        const ok=await sbSave(rec);
+        if(ok) state.cloudIds.add(rec.id);
+        render();
+      }
     }
   }
   state.syncing=false; render();
@@ -188,7 +203,7 @@ function saveRecords(recs){
   localStorage.setItem("oftalmo-v3",JSON.stringify(u));
   state.records=u;
 }
-function saveRecordRemote(rec){sbSave(rec);}
+function saveRecordRemote(rec){return sbSave(rec);}
 function deleteRecordRemote(id){sbDelete(id);}
 
 function applyAuto(recs){
@@ -761,7 +776,7 @@ function saveRecord(){
   const rec={...state.form,id:state.modal==="new"?uid():state.modal,createdAt:state.modal==="new"?new Date().toISOString():(state.records.find(r=>r.id===state.modal)?.createdAt||new Date().toISOString())};
   const next=state.modal==="new"?[rec,...state.records]:state.records.map(r=>r.id===state.modal?rec:r);
   saveRecords(next); closeModal();
-  saveRecordRemote(rec);
+  saveRecordRemote(rec).then(ok=>{ if(ok) showToast("✅ "+rec.name+" guardado en la nube ☁️","#1E7A48"); });
 }
 function deleteRecord(){
   if(!confirm("¿Eliminar esta cotización?"))return;
@@ -1509,6 +1524,26 @@ function render(){
         const row1=document.createElement("div"); row1.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
         const nameEl=document.createElement("div"); nameEl.style.cssText="font-weight:800;font-size:0.95rem;"; nameEl.textContent=r.name;
         row1.appendChild(nameEl); row1.appendChild(statusBadge(r.status));
+        // Indicador de nube por paciente
+        const inCloud=state.cloudIds.has(r.id);
+        const cloudBadge=document.createElement("span");
+        cloudBadge.title=inCloud?"Confirmado en Supabase ☁️":"Solo en este dispositivo ⚠️";
+        cloudBadge.style.cssText="font-size:0.78rem;padding:2px 7px;border-radius:12px;font-weight:800;cursor:default;white-space:nowrap;"
+          +(inCloud
+            ?"background:#E8F4F5;color:#0D6B72;border:1.5px solid #0D6B72;"
+            :"background:#FEF0E6;color:#C05C10;border:1.5px solid #C05C10;");
+        cloudBadge.textContent=inCloud?"☁️ ✓ Nube":"⚠️ Solo local";
+        // Al tocar el badge naranja, intenta subir a Supabase
+        if(!inCloud){
+          cloudBadge.style.cursor="pointer";
+          cloudBadge.addEventListener("click",async(e)=>{
+            e.stopPropagation();
+            cloudBadge.textContent="⧳ Subiendo…";
+            const ok=await sbSave(r);
+            if(ok){ showToast("✅ "+r.name+" subido a la nube","#1E7A48"); render(); }
+          });
+        }
+        row1.appendChild(cloudBadge);
         left.appendChild(row1);
 
         // Row 2: per-eye info with risk badge
