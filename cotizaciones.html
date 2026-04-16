@@ -49,7 +49,7 @@ const C={
 const fmt=n=>(n!=null&&n!==""&&!isNaN(n))?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(n):null;
 const fmtD=d=>{if(!d)return"";const[y,m,day]=d.split("-");return`${parseInt(day)} ${["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][parseInt(m)-1]} ${y}`;};
 const fmtDL=d=>{if(!d)return"";const[y,m,day]=d.split("-");return`${parseInt(day)} de ${["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"][parseInt(m)-1]} de ${y}`;};
-const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
+const uid=()=>crypto.randomUUID();
 const toStr=()=>new Date().toISOString().split("T")[0];
 const isPast=d=>d&&d<toStr();
 const dDiff=d=>{if(!d)return null;return Math.ceil((new Date(d)-new Date())/864e5);};
@@ -58,15 +58,15 @@ const TORIC_TYPES=["Tórico","Multifocal tórico","EDOF tórico","Premium person
 const MULTIFOCAL_TYPES=["Multifocal","Multifocal tórico","EDOF","EDOF tórico","Acomodativo","Premium personalizado"];
 function fmtPower(v){if(v===""||v==null)return"";const n=parseFloat(v);if(isNaN(n))return v;return(n>=0?"+":"")+n.toFixed(2);}
 const fmtCost=n=>{if(n==null||n===""||isNaN(n)||parseFloat(n)===0)return null;return new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(n);};
-const mkForm=()=>({name:"",tel1:"",tel2:"",activeEyes:[],eyeFirst:"",eyes:{OD:mkEye(),OI:mkEye()},status:"pending",notes:"",costMode:null}); // costMode: null=unset, "shared"=ambos ojos, "perEye"=independiente
+const mkForm=()=>({name:"",tel1:"",tel2:"",activeEyes:[],eyeFirst:"",eyes:{OD:mkEye(),OI:mkEye()},status:"pending",notes:"",costMode:null,anticipoMonto:"",anticipoFoto:"",anticipoFecha:""}); // costMode: null=unset, "shared"=ambos ojos, "perEye"=independiente
 
 // ── SUPABASE ──────────────────────────────────────────────────
 const SB_URL="https://ckjkdenwqicdjvodflba.supabase.co";
 const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNramtkZW53cWljZGp2b2RmbGJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MDIzMzgsImV4cCI6MjA4OTE3ODMzOH0.7pd1oAevIWY81e0DTSMBFtzSECfQNa_mOqstG_UEj-0";
 const sbHeaders={"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY};
 
-function recToRow(r){return{id:r.id,nombre:r.name||"",tel1:r.tel1||"",tel2:r.tel2||"",active_eyes:r.activeEyes||[],eye_first:r.eyeFirst||"",eyes:r.eyes||{},status:r.status||"pending",notes:r.notes||"",updated_at:new Date().toISOString()};}
-function rowToRec(row){return{id:row.id,name:row.nombre,tel1:row.tel1||"",tel2:row.tel2||"",activeEyes:row.active_eyes||[],eyeFirst:row.eye_first||"",eyes:row.eyes||{},status:row.status||"pending",notes:row.notes||""};}
+function recToRow(r){return{id:r.id,nombre:r.name||"",tel1:r.tel1||"",tel2:r.tel2||"",active_eyes:r.activeEyes||[],eye_first:r.eyeFirst||"",eyes:r.eyes||{},status:r.status||"pending",notes:r.notes||"",anticipo_monto:r.anticipoMonto?parseFloat(r.anticipoMonto)||null:null,anticipo_foto:r.anticipoFoto||null,anticipo_fecha:r.anticipoFecha||null,updated_at:new Date().toISOString()};}
+function rowToRec(row){return{id:row.id,name:row.nombre,tel1:row.tel1||"",tel2:row.tel2||"",activeEyes:row.active_eyes||[],eyeFirst:row.eye_first||"",eyes:row.eyes||{},status:row.status||"pending",notes:row.notes||"",anticipoMonto:row.anticipo_monto!=null?String(row.anticipo_monto):"",anticipoFoto:row.anticipo_foto||"",anticipoFecha:row.anticipo_fecha||""};}
 
 async function sbLoad(){
   try{
@@ -99,18 +99,18 @@ async function sbSave(rec){
     });
     if(!res.ok){
       const errBody=await res.text();
-      console.error("[COE] ❌ FAILED ("+res.status+"):",errBody);
-      showToast("❌ Error nube "+res.status+": "+errBody.slice(0,70),"#C03838");
+      console.error("[COE] FAILED ("+res.status+"):",errBody);
+      showToast("Error nube "+res.status+": "+errBody.slice(0,70),"#C03838");
       state.syncError=true; render();
       setTimeout(()=>{state.syncError=false;render();},8000);
     } else {
       savedOk=true;
       state.cloudIds.add(rec.id);
-      console.log("[COE] ✅ Nube OK:",rec.id,(rec.name||""));
+      console.log("[COE] Nube OK:",rec.id,(rec.name||""));
     }
   }catch(e){
-    console.error("[COE] ❌ Red:",e.message);
-    showToast("❌ Sin conexión: "+e.message,"#C03838");
+    console.error("[COE] Red:",e.message);
+    showToast("Sin conexion: "+e.message,"#C03838");
     state.syncError=true; render();
     setTimeout(()=>{state.syncError=false;render();},8000);
   }
@@ -143,7 +143,6 @@ async function loadRecords(){
   const remote=await sbLoad();
   if(remote.length>0){
     const remoteIds=new Set(remote.map(r=>r.id));
-    // Marcar cuáles están confirmados en Supabase
     state.cloudIds=remoteIds;
     const localOnly=state.records.filter(r=>!remoteIds.has(r.id));
     const merged=applyAuto([...remote,...localOnly]);
@@ -151,11 +150,7 @@ async function loadRecords(){
     localStorage.setItem("oftalmo-v3",JSON.stringify(merged));
     if(localOnly.length>0){
       console.log("[COE] "+localOnly.length+" reg. locales sin nube — subiendo…");
-      for(const rec of localOnly){
-        const ok=await sbSave(rec);
-        if(ok) state.cloudIds.add(rec.id);
-        render();
-      }
+      for(const rec of localOnly){const ok=await sbSave(rec);if(ok)state.cloudIds.add(rec.id);render();}
     }
   }
   state.syncing=false; render();
@@ -672,7 +667,11 @@ function buildSchedModal(){
 
 // ── MAIN EDIT MODAL ───────────────────────────────────────────
 function openModal(id){
-  state.modal=id; state.errors={};
+  const r=state.records.find(x=>x.id===id);
+  const base=r?migrateRecord(r):mkForm();
+  state.form={...mkForm(),...base,anticipoMonto:r?.anticipoMonto||"",anticipoFoto:r?.anticipoFoto||"",anticipoFecha:r?.anticipoFecha||(id==="new"?toStr():"")};
+  state.errors={}; state.modal=id; state.modalEyeTab=(state.form.activeEyes||[])[0]||"OD"; render();
+};
   if(id==="new"){state.form=mkForm();}
   else{state.form=migrateRecord(state.records.find(x=>x.id===id));}
   state.modalEyeTab=(state.form.activeEyes||[])[0]||"OD";
@@ -776,7 +775,7 @@ function saveRecord(){
   const rec={...state.form,id:state.modal==="new"?uid():state.modal,createdAt:state.modal==="new"?new Date().toISOString():(state.records.find(r=>r.id===state.modal)?.createdAt||new Date().toISOString())};
   const next=state.modal==="new"?[rec,...state.records]:state.records.map(r=>r.id===state.modal?rec:r);
   saveRecords(next); closeModal();
-  saveRecordRemote(rec).then(ok=>{ if(ok) showToast("✅ "+rec.name+" guardado en la nube ☁️","#1E7A48"); });
+  saveRecordRemote(rec).then(ok=>{if(ok)showToast(rec.name+" guardado en la nube","#1E7A48");});
 }
 function deleteRecord(){
   if(!confirm("¿Eliminar esta cotización?"))return;
@@ -925,7 +924,62 @@ function buildModalDOM(){
   const secNot=makeSec("📝 Notas"); body.appendChild(secNot);
   const ta=document.createElement("textarea"); ta.value=state.form.notes||""; ta.placeholder="Alergias, medicamentos, indicaciones especiales…"; ta.style.cssText=`width:100%;padding:10px 12px;border:1.5px solid ${C.border};border-radius:9px;font-size:0.87rem;color:${C.ink};background:white;outline:none;resize:vertical;min-height:65px;box-sizing:border-box;font-family:inherit;`;
   ta.addEventListener("input",e=>state.form.notes=e.target.value);
-  secNot.appendChild(ta); box.appendChild(body);
+  secNot.appendChild(ta);
+
+  // SECCION ANTICIPO
+  const secAnticipo=makeSec("Anticipo de pago"); body.appendChild(secAnticipo);
+  const antGrid=document.createElement("div"); antGrid.style.cssText="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px;";
+  const antMontoInp=inp(state.form.anticipoMonto,v=>state.form.anticipoMonto=v,"0.00","number",{});
+  antGrid.appendChild(fldWrap("Monto anticipo ($)",antMontoInp));
+  const antFechaInp=inp(state.form.anticipoFecha,v=>state.form.anticipoFecha=v,"","date",{});
+  antGrid.appendChild(fldWrap("Fecha de anticipo",antFechaInp));
+  secAnticipo.appendChild(antGrid);
+  // Foto ticket
+  const fotoLbl2=document.createElement("label"); fotoLbl2.style.cssText='display:block;font-size:0.71rem;font-weight:700;color:'+C.stone+';margin-bottom:6px;letter-spacing:0.04em;text-transform:uppercase;'; fotoLbl2.textContent="Foto del ticket / comprobante";
+  secAnticipo.appendChild(fotoLbl2);
+  const fPreview=document.createElement("div"); fPreview.style.marginBottom="8px";
+  function renderFotoPreview(){
+    fPreview.innerHTML="";
+    if(state.form.anticipoFoto){
+      const fimg=document.createElement("img"); fimg.src=state.form.anticipoFoto;
+      fimg.style.cssText="max-width:100%;max-height:180px;border-radius:10px;border:2px solid "+C.border+";display:block;";
+      const quitarBtn=btn("Quitar foto",()=>{state.form.anticipoFoto="";renderFotoPreview();},"danger",{fontSize:"0.75rem",padding:"5px 10px",marginTop:"6px"});
+      fPreview.appendChild(fimg); fPreview.appendChild(quitarBtn);
+    }
+  }
+  renderFotoPreview();
+  secAnticipo.appendChild(fPreview);
+  const fBtnRow=document.createElement("div"); fBtnRow.style.cssText="display:flex;gap:8px;flex-wrap:wrap;";
+  function pickFoto(capture){
+    const fi=document.createElement("input"); fi.type="file"; fi.accept="image/*";
+    if(capture) fi.setAttribute("capture","environment");
+    fi.style.display="none"; document.body.appendChild(fi);
+    fi.addEventListener("change",e=>{
+      const file=e.target.files[0]; if(!file){document.body.removeChild(fi);return;}
+      const reader=new FileReader();
+      reader.onload=ev=>{
+        const img2=new Image();
+        img2.onload=()=>{
+          const canvas=document.createElement("canvas");
+          const MAX=1200; let w=img2.width,h=img2.height;
+          if(w>MAX){h=Math.round(h*MAX/w);w=MAX;} if(h>MAX){w=Math.round(w*MAX/h);h=MAX;}
+          canvas.width=w; canvas.height=h;
+          canvas.getContext("2d").drawImage(img2,0,0,w,h);
+          state.form.anticipoFoto=canvas.toDataURL("image/jpeg",0.72);
+          renderFotoPreview();
+        };
+        img2.src=ev.target.result;
+      };
+      reader.readAsDataURL(file);
+      try{document.body.removeChild(fi);}catch(e){}
+    });
+    fi.click();
+  }
+  fBtnRow.appendChild(btn("Tomar foto",()=>pickFoto(true),"outline",{fontSize:"0.82rem",padding:"9px 13px"}));
+  fBtnRow.appendChild(btn("Galeria / Archivo",()=>pickFoto(false),"ghost",{fontSize:"0.82rem",padding:"9px 13px"}));
+  secAnticipo.appendChild(fBtnRow);
+
+  box.appendChild(body);
 
   const mFoot=document.createElement("div"); mFoot.style.cssText=`padding:11px 18px 16px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid ${C.border};flex-wrap:wrap;`;
   if(state.modal!=="new")mFoot.appendChild(btn("🗑 Eliminar",deleteRecord,"danger"));
@@ -1120,7 +1174,7 @@ function buildDailyView(){
       const pdays=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
       const pdt=new Date(parseInt(py),parseInt(pm)-1,parseInt(pd));
       const live2=applyAuto(state.records);
-      const pts2=live2.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye], r.eyes)));
+      const pts2=live2.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye], r.eyes))).sort((a,b)=>{const tA=(a.activeEyes||[]).map(e=>a.eyes?.[e]?.timeScheduled).filter(Boolean)[0]||"99:99";const tB=(b.activeEyes||[]).map(e=>b.eyes?.[e]?.timeScheduled).filter(Boolean)[0]||"99:99";return tA.localeCompare(tB);});
       if(!pts2.length){alert("Sin pacientes programados para este día.");return;}
 
       function cardHTML(r,i){
@@ -1134,6 +1188,7 @@ function buildDailyView(){
             <div style="font-weight:800;font-size:1rem;">${r.name}</div>
             <div style="font-size:0.78rem;color:#666;">${r.tel1}${r.tel2?" · "+r.tel2:""}</div>
           </div>
+          ${(()=>{const t=(r.activeEyes||[]).map(e=>r.eyes?.[e]?.timeScheduled).filter(Boolean)[0];return t?'<div style="background:#0D6B72;color:white;border-radius:8px;padding:3px 10px;font-size:0.85rem;font-weight:800;">Hora: '+t+'</div>':""})()}
           <div style="display:flex;gap:6px;flex-wrap:wrap;">`;
         eyes.forEach(eye=>{
           const rl=RISK_LEVELS.find(x=>x.val===(r.eyes?.[eye]?.risk||"standard"))||RISK_LEVELS[0];
@@ -1524,26 +1579,20 @@ function render(){
         const row1=document.createElement("div"); row1.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
         const nameEl=document.createElement("div"); nameEl.style.cssText="font-weight:800;font-size:0.95rem;"; nameEl.textContent=r.name;
         row1.appendChild(nameEl); row1.appendChild(statusBadge(r.status));
-        // Indicador de nube por paciente
         const inCloud=state.cloudIds.has(r.id);
         const cloudBadge=document.createElement("span");
-        cloudBadge.title=inCloud?"Confirmado en Supabase ☁️":"Solo en este dispositivo ⚠️";
-        cloudBadge.style.cssText="font-size:0.78rem;padding:2px 7px;border-radius:12px;font-weight:800;cursor:default;white-space:nowrap;"
-          +(inCloud
-            ?"background:#E8F4F5;color:#0D6B72;border:1.5px solid #0D6B72;"
-            :"background:#FEF0E6;color:#C05C10;border:1.5px solid #C05C10;");
-        cloudBadge.textContent=inCloud?"☁️ ✓ Nube":"⚠️ Solo local";
-        // Al tocar el badge naranja, intenta subir a Supabase
-        if(!inCloud){
-          cloudBadge.style.cursor="pointer";
-          cloudBadge.addEventListener("click",async(e)=>{
-            e.stopPropagation();
-            cloudBadge.textContent="⧳ Subiendo…";
-            const ok=await sbSave(r);
-            if(ok){ showToast("✅ "+r.name+" subido a la nube","#1E7A48"); render(); }
-          });
-        }
+        cloudBadge.title=inCloud?"Confirmado en Supabase":"Solo en este dispositivo - toca para subir";
+        cloudBadge.style.cssText="font-size:0.78rem;padding:2px 7px;border-radius:12px;font-weight:800;white-space:nowrap;"+(inCloud?"background:#E8F4F5;color:#0D6B72;border:1.5px solid #0D6B72;cursor:default;":"background:#FEF0E6;color:#C05C10;border:1.5px solid #C05C10;cursor:pointer;");
+        cloudBadge.textContent=inCloud?"Nube OK":"Solo local";
+        if(!inCloud){cloudBadge.addEventListener("click",async(e)=>{e.stopPropagation();cloudBadge.textContent="Subiendo...";
+        const ok=await sbSave(r);if(ok){showToast(r.name+" subido a la nube","#1E7A48");render();}else{cloudBadge.textContent="Solo local";}});}
         row1.appendChild(cloudBadge);
+        if(r.anticipoMonto&&parseFloat(r.anticipoMonto)>0){
+          const ab=document.createElement("span");
+          ab.style.cssText="font-size:0.78rem;padding:2px 8px;border-radius:12px;font-weight:800;background:#E8F0FA;color:#1A5FA8;border:1.5px solid #1A5FA8;white-space:nowrap;";
+          ab.textContent="Anticipo: "+new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(parseFloat(r.anticipoMonto));
+          row1.appendChild(ab);
+        }
         left.appendChild(row1);
 
         // Row 2: per-eye info with risk badge
