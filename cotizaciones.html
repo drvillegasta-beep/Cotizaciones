@@ -671,11 +671,6 @@ function openModal(id){
   const base=r?migrateRecord(r):mkForm();
   state.form={...mkForm(),...base,anticipoMonto:r?.anticipoMonto||"",anticipoFoto:r?.anticipoFoto||"",anticipoFecha:r?.anticipoFecha||(id==="new"?toStr():"")};
   state.errors={}; state.modal=id; state.modalEyeTab=(state.form.activeEyes||[])[0]||"OD"; render();
-};
-  if(id==="new"){state.form=mkForm();}
-  else{state.form=migrateRecord(state.records.find(x=>x.id===id));}
-  state.modalEyeTab=(state.form.activeEyes||[])[0]||"OD";
-  render();
 }
 function closeModal(){state.modal=null;state._awaitingBothConfirm=false;state._bothConfirmed=false;render();}
 function hasCostZero(eyeData, allEyesData){
