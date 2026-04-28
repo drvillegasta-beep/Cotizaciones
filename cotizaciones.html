@@ -30,7 +30,7 @@ const SURGERY_DB={
   "Láser":["Láser diodo","Láser YAG"]
 };
 const ALL_SURGERIES=Object.values(SURGERY_DB).flat();
-const LIO_TYPES=["Monofocal hidrofílico","Monofocal hidrofóbico","Tórico","Multifocal","Multifocal tórico","EDOF","EDOF tórico","Acomodativo","Premium personalizado","Otro"];
+const LIO_TYPES=["Monofocal hidrofílico","Monofocal hidrofóbico","Tórico","Multifocal","Multifocal tórico","Trifocal","Trifocal tórico","EDOF","EDOF tórico","Acomodativo","Premium personalizado","Otro"];
 // Risk is now PER EYE
 const RISK_LEVELS=[
   {val:"standard",label:"Estándar",color:"#1E7A48",pale:"#E6F5ED",icon:"🟢"},
@@ -49,7 +49,7 @@ const C={
 const fmt=n=>(n!=null&&n!==""&&!isNaN(n))?new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(n):null;
 const fmtD=d=>{if(!d)return"";const[y,m,day]=d.split("-");return`${parseInt(day)} ${["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][parseInt(m)-1]} ${y}`;};
 const fmtDL=d=>{if(!d)return"";const[y,m,day]=d.split("-");return`${parseInt(day)} de ${["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"][parseInt(m)-1]} de ${y}`;};
-const uid=()=>crypto.randomUUID();
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
 const toStr=()=>new Date().toISOString().split("T")[0];
 const isPast=d=>d&&d<toStr();
 const dDiff=d=>{if(!d)return null;return Math.ceil((new Date(d)-new Date())/864e5);};
@@ -58,15 +58,15 @@ const TORIC_TYPES=["Tórico","Multifocal tórico","EDOF tórico","Premium person
 const MULTIFOCAL_TYPES=["Multifocal","Multifocal tórico","EDOF","EDOF tórico","Acomodativo","Premium personalizado"];
 function fmtPower(v){if(v===""||v==null)return"";const n=parseFloat(v);if(isNaN(n))return v;return(n>=0?"+":"")+n.toFixed(2);}
 const fmtCost=n=>{if(n==null||n===""||isNaN(n)||parseFloat(n)===0)return null;return new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(n);};
-const mkForm=()=>({name:"",tel1:"",tel2:"",activeEyes:[],eyeFirst:"",eyes:{OD:mkEye(),OI:mkEye()},status:"pending",notes:"",costMode:null,anticipoMonto:"",anticipoFoto:"",anticipoFecha:""}); // costMode: null=unset, "shared"=ambos ojos, "perEye"=independiente
+const mkForm=()=>({name:"",expediente:"",tel1:"",tel2:"",activeEyes:[],eyeFirst:"",eyes:{OD:mkEye(),OI:mkEye()},status:"pending",notes:"",costMode:null}); // costMode: null=unset, "shared"=ambos ojos, "perEye"=independiente
 
 // ── SUPABASE ──────────────────────────────────────────────────
 const SB_URL="https://ckjkdenwqicdjvodflba.supabase.co";
 const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNramtkZW53cWljZGp2b2RmbGJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MDIzMzgsImV4cCI6MjA4OTE3ODMzOH0.7pd1oAevIWY81e0DTSMBFtzSECfQNa_mOqstG_UEj-0";
 const sbHeaders={"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY};
 
-function recToRow(r){return{id:r.id,nombre:r.name||"",tel1:r.tel1||"",tel2:r.tel2||"",active_eyes:r.activeEyes||[],eye_first:r.eyeFirst||"",eyes:r.eyes||{},status:r.status||"pending",notes:r.notes||"",anticipo_monto:r.anticipoMonto?parseFloat(r.anticipoMonto)||null:null,anticipo_foto:r.anticipoFoto||null,anticipo_fecha:r.anticipoFecha||null,updated_at:new Date().toISOString()};}
-function rowToRec(row){return{id:row.id,name:row.nombre,tel1:row.tel1||"",tel2:row.tel2||"",activeEyes:row.active_eyes||[],eyeFirst:row.eye_first||"",eyes:row.eyes||{},status:row.status||"pending",notes:row.notes||"",anticipoMonto:row.anticipo_monto!=null?String(row.anticipo_monto):"",anticipoFoto:row.anticipo_foto||"",anticipoFecha:row.anticipo_fecha||""};}
+function recToRow(r){return{id:r.id,nombre:r.name||"",expediente:r.expediente||null,tel1:r.tel1||"",tel2:r.tel2||"",active_eyes:r.activeEyes||[],eye_first:r.eyeFirst||"",eyes:r.eyes||{},status:r.status||"pending",notes:r.notes||"",capturado_por:r.capturadoPor||null,capturado_at:r.capturadoAt||null,updated_at:new Date().toISOString()};}
+function rowToRec(row){return{id:row.id,name:row.nombre,expediente:row.expediente||"",tel1:row.tel1||"",tel2:row.tel2||"",activeEyes:row.active_eyes||[],eyeFirst:row.eye_first||"",eyes:row.eyes||{},status:row.status||"pending",notes:row.notes||"",capturadoPor:row.capturado_por||"",capturadoAt:row.capturado_at||""};}
 
 async function sbLoad(){
   try{
@@ -82,43 +82,20 @@ async function sbLoad(){
   }
 }
 
-function showToast(msg,color){
-  const t=document.createElement("div");
-  t.textContent=msg;
-  t.style.cssText="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:"+color+";color:white;padding:11px 22px;border-radius:10px;font-size:0.87rem;font-weight:700;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.3);max-width:92vw;text-align:center;";
-  document.body.appendChild(t);
-  setTimeout(()=>{t.style.cssText+=";opacity:0;transition:opacity 0.5s;";setTimeout(()=>t.remove(),500);},4500);
-}
 async function sbSave(rec){
   const row=recToRow(rec);
-  let savedOk=false;
   try{
     const res=await fetch(SB_URL+"/rest/v1/cotizaciones",{
       method:"POST",headers:{...sbHeaders,"Prefer":"resolution=merge-duplicates"},
       body:JSON.stringify(row)
     });
-    if(!res.ok){
-      const errBody=await res.text();
-      console.error("[COE] FAILED ("+res.status+"):",errBody);
-      showToast("Error nube "+res.status+": "+errBody.slice(0,70),"#C03838");
-      state.syncError=true; render();
-      setTimeout(()=>{state.syncError=false;render();},8000);
-    } else {
-      savedOk=true;
-      state.cloudIds.add(rec.id);
-      console.log("[COE] Nube OK:",rec.id,(rec.name||""));
-    }
-  }catch(e){
-    console.error("[COE] Red:",e.message);
-    showToast("Sin conexion: "+e.message,"#C03838");
-    state.syncError=true; render();
-    setTimeout(()=>{state.syncError=false;render();},8000);
-  }
+    if(!res.ok) throw new Error(await res.text());
+  }catch(e){console.error("Supabase save error:",e);}
+  // Always mirror to localStorage as backup
   const local=JSON.parse(localStorage.getItem("oftalmo-v3")||"[]");
   const idx=local.findIndex(x=>x.id===rec.id);
   if(idx>=0) local[idx]=rec; else local.unshift(rec);
   localStorage.setItem("oftalmo-v3",JSON.stringify(local));
-  return savedOk;
 }
 
 async function sbDelete(id){
@@ -130,29 +107,156 @@ async function sbDelete(id){
   localStorage.setItem("oftalmo-v3",JSON.stringify(local));
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// COE — LOGIN, PEDIDOS LIO, INTEGRACIÓN CON FINANZAS
+// ═══════════════════════════════════════════════════════════════════
+const SESSION_HOURS=8;
+
+async function sha256(text){
+  const buf=new TextEncoder().encode(text);
+  const hash=await crypto.subtle.digest("SHA-256",buf);
+  return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+async function sbSelect(table,query){
+  const res=await fetch(SB_URL+"/rest/v1/"+table+(query||""),{headers:sbHeaders});
+  if(!res.ok) throw new Error(await res.text());
+  return await res.json();
+}
+async function sbInsertReturn(table,data){
+  const res=await fetch(SB_URL+"/rest/v1/"+table,{
+    method:"POST",
+    headers:{...sbHeaders,"Prefer":"return=representation"},
+    body:JSON.stringify(data)
+  });
+  if(!res.ok) throw new Error(await res.text());
+  const d=await res.json();
+  return Array.isArray(d)?d[0]:d;
+}
+async function sbPatch(table,filter,data){
+  const res=await fetch(SB_URL+"/rest/v1/"+table+filter,{
+    method:"PATCH",headers:sbHeaders,body:JSON.stringify(data)
+  });
+  if(!res.ok) throw new Error(await res.text());
+}
+
+async function listCotUsuarios(){
+  try{ return await sbSelect("cot_usuarios","?select=id,nombre,rol&activo=eq.true&order=nombre.asc"); }
+  catch(e){ console.error("listCotUsuarios:",e); return []; }
+}
+async function loginCotUsr(nombre,pin){
+  try{
+    const users=await sbSelect("cot_usuarios","?select=*&activo=eq.true");
+    const u=users.find(x=>x.nombre===nombre);
+    if(!u) return {ok:false,err:"Usuario no encontrado"};
+    const hash=await sha256(pin);
+    if(hash!==u.pin_hash) return {ok:false,err:"PIN incorrecto"};
+    fetch(SB_URL+"/rest/v1/cot_usuarios?id=eq."+u.id,{
+      method:"PATCH",headers:sbHeaders,
+      body:JSON.stringify({ultimo_login:new Date().toISOString()})
+    }).catch(()=>{});
+    return {ok:true,user:{id:u.id,nombre:u.nombre,rol:u.rol,exp:Date.now()+SESSION_HOURS*3600*1000}};
+  }catch(e){ console.error("login:",e); return {ok:false,err:"Error de conexión: "+e.message}; }
+}
+
+async function loadPedidos(){
+  try{
+    const [peds,log,cat,ent]=await Promise.all([
+      sbSelect("qui_pedidos_lio","?select=*&order=created_at.desc"),
+      sbSelect("qui_pedidos_lio_log","?select=*&order=timestamp.desc&limit=500"),
+      sbSelect("qui_lio_catalogo","?select=*&activo=eq.true&order=modelo.asc"),
+      sbSelect("fin_entidades","?select=*&activo=eq.true&order=nombre.asc"),
+    ]);
+    state.pedidos=peds||[]; state.pedidosLog=log||[];
+    state.lioCatalog=cat||[]; state.entidades=ent||[];
+  }catch(e){ console.warn("loadPedidos:",e); }
+}
+
+async function uploadAnticipoFile(file,refId){
+  try{
+    const ext=(file.name.split(".").pop()||"jpg").toLowerCase().replace(/[^a-z0-9]/g,"");
+    const safeId=String(refId).replace(/[^a-zA-Z0-9_\-]/g,"_");
+    const path="anticipos/"+safeId+"-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)+"."+ext;
+    const res=await fetch(SB_URL+"/storage/v1/object/comprobantes/"+path,{
+      method:"POST",
+      headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY,"Content-Type":file.type||"application/octet-stream"},
+      body:file
+    });
+    if(!res.ok) throw new Error(await res.text());
+    return SB_URL+"/storage/v1/object/public/comprobantes/"+path;
+  }catch(e){ console.error("uploadAnticipo:",e); return null; }
+}
+
+function pedToast(msg,type){
+  type=type||"info";
+  const colors={success:"#1E7A48",error:"#C03838",warning:"#C05C10",info:"#1A5FA8"};
+  const t=document.createElement("div");
+  t.style.cssText=`position:fixed;top:20px;left:50%;transform:translateX(-50%);background:white;border:2px solid ${colors[type]};border-radius:11px;padding:12px 20px;box-shadow:0 8px 24px rgba(0,0,0,0.15);z-index:99999;font-weight:700;font-size:0.9rem;color:${colors[type]};display:flex;gap:10px;align-items:center;max-width:90vw;`;
+  const ico={success:"✓",error:"✕",warning:"⚠",info:"ℹ"}[type];
+  t.innerHTML=`<span>${ico}</span><span>${msg}</span>`;
+  document.body.appendChild(t);
+  setTimeout(()=>{t.style.opacity="0";t.style.transition="opacity .3s";setTimeout(()=>t.remove(),300);},3500);
+}
+
+function pedDiasRetraso(p){
+  if(["cancelado","invalidado","entregado","recibido_clinica"].includes(p.estado)) return null;
+  if(!p.fecha_entrega_estimada) return null;
+  const hoy=new Date(); hoy.setHours(0,0,0,0);
+  const f=new Date(p.fecha_entrega_estimada+"T00:00:00");
+  const d=Math.floor((hoy-f)/86400000);
+  return d>0?d:null;
+}
+
+function checkSession(){
+  const raw=localStorage.getItem("coe-cot-session");
+  if(!raw) return false;
+  try{
+    const s=JSON.parse(raw);
+    if(s.exp && Date.now() > s.exp){ localStorage.removeItem("coe-cot-session"); return false; }
+    state.user=s;
+    return true;
+  }catch(e){ return false; }
+}
+function saveSession(){
+  if(state.user) localStorage.setItem("coe-cot-session",JSON.stringify(state.user));
+}
+function logout(){
+  if(!confirm("¿Cerrar sesión?")) return;
+  state.user=null;
+  localStorage.removeItem("coe-cot-session");
+  state.pedidos=[]; state.lioCatalog=[]; state.entidades=[];
+  render();
+}
+
 // ── STATE ────────────────────────────────────────────────────
-let state={tab:"list",records:[],filter:"all",search:"",modal:null,form:mkForm(),errors:{},modalEyeTab:"OD",schedModal:null,expandedDays:{},customSurgeries:[],sortBy:"date",sortDir:"desc",syncing:false,syncError:false,cloudIds:new Set(),_awaitingBothConfirm:false,_bothConfirmed:false};
+let state={tab:"list",records:[],filter:"all",search:"",modal:null,form:mkForm(),errors:{},modalEyeTab:"OD",schedModal:null,expandedDays:{},customSurgeries:[],sortBy:"date",sortDir:"desc",syncing:false,syncError:false,_awaitingBothConfirm:false,_bothConfirmed:false,
+  // ─── COE PEDIDOS LIO ───
+  user:null,                  // sesión activa: {id, nombre, rol, exp}
+  pedidos:[],
+  pedidosLog:[],
+  lioCatalog:[],
+  entidades:[],
+  pedFilter:"todos",
+  pedSearch:"",
+  lioPanel:{}                 // buffer pedido LIO en formulario abierto: {OD:{...}, OI:{...}}
+};
 
 function getAllSurgeries(){return [...Object.values(SURGERY_DB).flat(),...state.customSurgeries];}
 
 async function loadRecords(){
   try{state.customSurgeries=JSON.parse(localStorage.getItem("oftalmo-custom-surg")||"[]");}catch(e){state.customSurgeries=[];}
+  // Load from localStorage first for instant display
   try{state.records=JSON.parse(localStorage.getItem("oftalmo-v3")||"[]");}catch(e){state.records=[];}
   state.records=applyAuto(state.records); render();
+  // Then sync from Supabase
   state.syncing=true; render();
   const remote=await sbLoad();
+  // Only replace local data if Supabase has records — prevents wiping local data when Supabase is empty
   if(remote.length>0){
-    const remoteIds=new Set(remote.map(r=>r.id));
-    state.cloudIds=remoteIds;
-    const localOnly=state.records.filter(r=>!remoteIds.has(r.id));
-    const merged=applyAuto([...remote,...localOnly]);
-    state.records=merged;
-    localStorage.setItem("oftalmo-v3",JSON.stringify(merged));
-    if(localOnly.length>0){
-      console.log("[COE] "+localOnly.length+" reg. locales sin nube — subiendo…");
-      for(const rec of localOnly){const ok=await sbSave(rec);if(ok)state.cloudIds.add(rec.id);render();}
-    }
+    state.records=applyAuto(remote);
+    localStorage.setItem("oftalmo-v3",JSON.stringify(state.records));
   }
+  // If Supabase is empty but we have local data, keep local (user needs to tap ☁️ to upload)
   state.syncing=false; render();
 }
 function saveCustomSurgeries(){localStorage.setItem("oftalmo-custom-surg",JSON.stringify(state.customSurgeries));}
@@ -198,7 +302,7 @@ function saveRecords(recs){
   localStorage.setItem("oftalmo-v3",JSON.stringify(u));
   state.records=u;
 }
-function saveRecordRemote(rec){return sbSave(rec);}
+function saveRecordRemote(rec){sbSave(rec);}
 function deleteRecordRemote(id){sbDelete(id);}
 
 function applyAuto(recs){
@@ -494,6 +598,15 @@ function makeEyePanel(eyeData,onchange,surgErr,parentActiveEyes,costOnly){
     // Marca/Modelo — full width
     const md=document.createElement("div"); md.style.gridColumn="1/-1";
     md.appendChild(fldWrap("Marca / Modelo",inp(data.lioNotes,v=>update("lioNotes",v),"Alcon AcrySof SN60WF…"))); lioFields.appendChild(md);
+
+    // ─── PANEL DE PEDIDO DE LIO ───
+    if(data.lioNeeded){
+      const orderPanel=buildLioOrderPanel(eye, data);
+      if(orderPanel){
+        orderPanel.style.gridColumn="1/-1";
+        lioFields.appendChild(orderPanel);
+      }
+    }
   }
   renderLio(); lioSec.appendChild(lioFields); wrap.appendChild(lioSec);
 
@@ -667,10 +780,11 @@ function buildSchedModal(){
 
 // ── MAIN EDIT MODAL ───────────────────────────────────────────
 function openModal(id){
-  const r=state.records.find(x=>x.id===id);
-  const base=r?migrateRecord(r):mkForm();
-  state.form={...mkForm(),...base,anticipoMonto:r?.anticipoMonto||"",anticipoFoto:r?.anticipoFoto||"",anticipoFecha:r?.anticipoFecha||(id==="new"?toStr():"")};
-  state.errors={}; state.modal=id; state.modalEyeTab=(state.form.activeEyes||[])[0]||"OD"; render();
+  state.modal=id; state.errors={};
+  if(id==="new"){state.form=mkForm();}
+  else{state.form=migrateRecord(state.records.find(x=>x.id===id));}
+  state.modalEyeTab=(state.form.activeEyes||[])[0]||"OD";
+  render();
 }
 function closeModal(){state.modal=null;state._awaitingBothConfirm=false;state._bothConfirmed=false;render();}
 function hasCostZero(eyeData, allEyesData){
@@ -722,11 +836,17 @@ function recordTotal(r){
 function validateForm(){
   const e={},f=state.form;
   if(!f.name.trim())e.name="Nombre obligatorio";
+  // Expediente obligatorio + numérico + único
+  if(!String(f.expediente||"").trim()) e.expediente="Expediente obligatorio";
+  else if(!/^\d+$/.test(String(f.expediente).trim())) e.expediente="Solo dígitos";
+  else {
+    const dup=state.records.find(r=>r.id!==state.modal && String(r.expediente||"").trim()===String(f.expediente).trim());
+    if(dup) e.expediente="Ya registrado para "+dup.name;
+  }
   if(!f.tel1.trim())e.tel1="Teléfono 1 obligatorio";
   if(!(f.activeEyes||[]).length)e.activeEyes="Selecciona al menos un ojo";
   const isBothVal=(f.activeEyes||[]).length===2;
   if(isBothVal){
-    // Only require OD surgery when both eyes active — OI mirrors OD
     if(!f.eyes?.["OD"]?.surgery)e["OD_s"]="Procedimiento OD obligatorio";
   } else {
     (f.activeEyes||[]).forEach(eye=>{
@@ -767,10 +887,57 @@ function saveRecord(){
       }
     });
   }
-  const rec={...state.form,id:state.modal==="new"?uid():state.modal,createdAt:state.modal==="new"?new Date().toISOString():(state.records.find(r=>r.id===state.modal)?.createdAt||new Date().toISOString())};
-  const next=state.modal==="new"?[rec,...state.records]:state.records.map(r=>r.id===state.modal?rec:r);
+  const isNew=state.modal==="new";
+  const prev=isNew?null:state.records.find(r=>r.id===state.modal);
+  const rec={
+    ...state.form,
+    id:isNew?uid():state.modal,
+    createdAt:isNew?new Date().toISOString():(prev?.createdAt||new Date().toISOString()),
+    capturadoPor:isNew?(state.user?.nombre||"—"):(prev?.capturadoPor||state.user?.nombre||"—"),
+    capturadoAt:isNew?new Date().toISOString():(prev?.capturadoAt||new Date().toISOString())
+  };
+  // Detectar cambios críticos en LIO → invalidar pedidos activos
+  if(!isNew && prev) checkLioChangesAndInvalidate(prev,rec);
+  const next=isNew?[rec,...state.records]:state.records.map(r=>r.id===state.modal?rec:r);
   saveRecords(next); closeModal();
-  saveRecordRemote(rec).then(ok=>{if(ok)showToast(rec.name+" guardado en la nube","#1E7A48");});
+  saveRecordRemote(rec);
+}
+
+// ── Invalidación automática de pedidos LIO ───────────────────
+function checkLioChangesAndInvalidate(prev,curr){
+  const watch=["lioType","lioPower","lioCyl","lioAxis","lioAdd","lioNeeded"];
+  ["OD","OI"].forEach(eye=>{
+    const pe=prev.eyes?.[eye]||{}, ce=curr.eyes?.[eye]||{};
+    const changedFields=watch.filter(f=>String(pe[f]||"")!==String(ce[f]||""));
+    if(!changedFields.length) return;
+    const activos=state.pedidos.filter(p=>
+      p.cotizacion_paciente_id===prev.id &&
+      p.ojo===eye &&
+      !["cancelado","invalidado","entregado","recibido_clinica"].includes(p.estado)
+    );
+    activos.forEach(async p=>{
+      const snapshot={...p,_invalidatedAt:new Date().toISOString(),_changedFields:changedFields};
+      try{
+        await sbPatch("qui_pedidos_lio","?id=eq."+p.id,{
+          estado:"invalidado",
+          cancelado_at:new Date().toISOString(),
+          cancelado_por:state.user?.nombre||"—",
+          motivo_cancelacion:"Cotización modificada (cambió: "+changedFields.join(", ")+")"
+        });
+        await sbInsertReturn("qui_pedidos_lio_log",{
+          pedido_id:p.id,
+          accion:"invalidar",
+          usuario:state.user?.nombre||"—",
+          comentario:"Cambios en cotización: "+changedFields.join(", "),
+          snapshot:snapshot
+        });
+      }catch(e){ console.error("invalidate:",e); }
+    });
+    if(activos.length){
+      pedToast(`⚠️ ${activos.length} pedido${activos.length>1?"s":""} de LIO ${eye} invalidado${activos.length>1?"s":""} por cambio de parámetros`,"warning");
+      setTimeout(loadPedidos,800);
+    }
+  });
 }
 function deleteRecord(){
   if(!confirm("¿Eliminar esta cotización?"))return;
@@ -803,6 +970,11 @@ function buildModalDOM(){
   // Paciente
   const secPac=makeSec("👤 Paciente"); body.appendChild(secPac);
   secPac.appendChild(fldWrap("Nombre completo",inp(state.form.name,v=>state.form.name=v,"Nombre del paciente"),true,state.errors.name));
+  // Expediente — numérico, único, obligatorio
+  const expGrid=document.createElement("div"); expGrid.style.cssText="display:grid;grid-template-columns:1fr 1fr;gap:9px;";
+  expGrid.appendChild(fldWrap("📋 Expediente",inp(state.form.expediente||"",v=>state.form.expediente=v.replace(/[^\d]/g,""),"Número de expediente","tel"),true,state.errors.expediente));
+  expGrid.appendChild(document.createElement("div"));
+  secPac.appendChild(expGrid);
   const telGrid=document.createElement("div"); telGrid.style.cssText="display:grid;grid-template-columns:1fr 1fr;gap:9px;";
   telGrid.appendChild(fldWrap("Teléfono 1",inp(state.form.tel1,v=>state.form.tel1=v,"55 1234 5678","tel"),true,state.errors.tel1));
   telGrid.appendChild(fldWrap("Teléfono 2",inp(state.form.tel2,v=>state.form.tel2=v,"Número alternativo","tel"),true,state.errors.tel2));
@@ -919,62 +1091,7 @@ function buildModalDOM(){
   const secNot=makeSec("📝 Notas"); body.appendChild(secNot);
   const ta=document.createElement("textarea"); ta.value=state.form.notes||""; ta.placeholder="Alergias, medicamentos, indicaciones especiales…"; ta.style.cssText=`width:100%;padding:10px 12px;border:1.5px solid ${C.border};border-radius:9px;font-size:0.87rem;color:${C.ink};background:white;outline:none;resize:vertical;min-height:65px;box-sizing:border-box;font-family:inherit;`;
   ta.addEventListener("input",e=>state.form.notes=e.target.value);
-  secNot.appendChild(ta);
-
-  // SECCION ANTICIPO
-  const secAnticipo=makeSec("Anticipo de pago"); body.appendChild(secAnticipo);
-  const antGrid=document.createElement("div"); antGrid.style.cssText="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px;";
-  const antMontoInp=inp(state.form.anticipoMonto,v=>state.form.anticipoMonto=v,"0.00","number",{});
-  antGrid.appendChild(fldWrap("Monto anticipo ($)",antMontoInp));
-  const antFechaInp=inp(state.form.anticipoFecha,v=>state.form.anticipoFecha=v,"","date",{});
-  antGrid.appendChild(fldWrap("Fecha de anticipo",antFechaInp));
-  secAnticipo.appendChild(antGrid);
-  // Foto ticket
-  const fotoLbl2=document.createElement("label"); fotoLbl2.style.cssText='display:block;font-size:0.71rem;font-weight:700;color:'+C.stone+';margin-bottom:6px;letter-spacing:0.04em;text-transform:uppercase;'; fotoLbl2.textContent="Foto del ticket / comprobante";
-  secAnticipo.appendChild(fotoLbl2);
-  const fPreview=document.createElement("div"); fPreview.style.marginBottom="8px";
-  function renderFotoPreview(){
-    fPreview.innerHTML="";
-    if(state.form.anticipoFoto){
-      const fimg=document.createElement("img"); fimg.src=state.form.anticipoFoto;
-      fimg.style.cssText="max-width:100%;max-height:180px;border-radius:10px;border:2px solid "+C.border+";display:block;";
-      const quitarBtn=btn("Quitar foto",()=>{state.form.anticipoFoto="";renderFotoPreview();},"danger",{fontSize:"0.75rem",padding:"5px 10px",marginTop:"6px"});
-      fPreview.appendChild(fimg); fPreview.appendChild(quitarBtn);
-    }
-  }
-  renderFotoPreview();
-  secAnticipo.appendChild(fPreview);
-  const fBtnRow=document.createElement("div"); fBtnRow.style.cssText="display:flex;gap:8px;flex-wrap:wrap;";
-  function pickFoto(capture){
-    const fi=document.createElement("input"); fi.type="file"; fi.accept="image/*";
-    if(capture) fi.setAttribute("capture","environment");
-    fi.style.display="none"; document.body.appendChild(fi);
-    fi.addEventListener("change",e=>{
-      const file=e.target.files[0]; if(!file){document.body.removeChild(fi);return;}
-      const reader=new FileReader();
-      reader.onload=ev=>{
-        const img2=new Image();
-        img2.onload=()=>{
-          const canvas=document.createElement("canvas");
-          const MAX=1200; let w=img2.width,h=img2.height;
-          if(w>MAX){h=Math.round(h*MAX/w);w=MAX;} if(h>MAX){w=Math.round(w*MAX/h);h=MAX;}
-          canvas.width=w; canvas.height=h;
-          canvas.getContext("2d").drawImage(img2,0,0,w,h);
-          state.form.anticipoFoto=canvas.toDataURL("image/jpeg",0.72);
-          renderFotoPreview();
-        };
-        img2.src=ev.target.result;
-      };
-      reader.readAsDataURL(file);
-      try{document.body.removeChild(fi);}catch(e){}
-    });
-    fi.click();
-  }
-  fBtnRow.appendChild(btn("Tomar foto",()=>pickFoto(true),"outline",{fontSize:"0.82rem",padding:"9px 13px"}));
-  fBtnRow.appendChild(btn("Galeria / Archivo",()=>pickFoto(false),"ghost",{fontSize:"0.82rem",padding:"9px 13px"}));
-  secAnticipo.appendChild(fBtnRow);
-
-  box.appendChild(body);
+  secNot.appendChild(ta); box.appendChild(body);
 
   const mFoot=document.createElement("div"); mFoot.style.cssText=`padding:11px 18px 16px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid ${C.border};flex-wrap:wrap;`;
   if(state.modal!=="new")mFoot.appendChild(btn("🗑 Eliminar",deleteRecord,"danger"));
@@ -1169,7 +1286,7 @@ function buildDailyView(){
       const pdays=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
       const pdt=new Date(parseInt(py),parseInt(pm)-1,parseInt(pd));
       const live2=applyAuto(state.records);
-      const pts2=live2.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye], r.eyes))).sort((a,b)=>{const tA=(a.activeEyes||[]).map(e=>a.eyes?.[e]?.timeScheduled).filter(Boolean)[0]||"99:99";const tB=(b.activeEyes||[]).map(e=>b.eyes?.[e]?.timeScheduled).filter(Boolean)[0]||"99:99";return tA.localeCompare(tB);});
+      const pts2=live2.filter(r=>(r.activeEyes||[]).some(eye=>r.eyes?.[eye]?.dateScheduled===selDate&&!hasCostZero(r.eyes?.[eye], r.eyes)));
       if(!pts2.length){alert("Sin pacientes programados para este día.");return;}
 
       function cardHTML(r,i){
@@ -1183,7 +1300,6 @@ function buildDailyView(){
             <div style="font-weight:800;font-size:1rem;">${r.name}</div>
             <div style="font-size:0.78rem;color:#666;">${r.tel1}${r.tel2?" · "+r.tel2:""}</div>
           </div>
-          ${(()=>{const t=(r.activeEyes||[]).map(e=>r.eyes?.[e]?.timeScheduled).filter(Boolean)[0];return t?'<div style="background:#0D6B72;color:white;border-radius:8px;padding:3px 10px;font-size:0.85rem;font-weight:800;">Hora: '+t+'</div>':""})()}
           <div style="display:flex;gap:6px;flex-wrap:wrap;">`;
         eyes.forEach(eye=>{
           const rl=RISK_LEVELS.find(x=>x.val===(r.eyes?.[eye]?.risk||"standard"))||RISK_LEVELS[0];
@@ -1350,6 +1466,21 @@ function buildHistoryView(){
 // ── MAIN RENDER ───────────────────────────────────────────────
 function render(){
   const app=document.getElementById("app"); app.innerHTML="";
+
+  // ─── LOGIN SCREEN si no hay sesión válida ───
+  if(!state.user){
+    renderLoginScreen(app);
+    return;
+  }
+  // Verificar expiración
+  if(state.user.exp && Date.now() > state.user.exp){
+    state.user=null;
+    localStorage.removeItem("coe-cot-session");
+    pedToast("Sesión expirada — vuelve a iniciar","warning");
+    renderLoginScreen(app);
+    return;
+  }
+
   const live=applyAuto(state.records);
   const stats={
     total:state.records.length,
@@ -1455,19 +1586,62 @@ function render(){
   rightSide.appendChild(exportBtn);
   rightSide.appendChild(importBtn);
   rightSide.appendChild(backupBtn);
+
+  // Usuario logueado + logout
+  if(state.user){
+    const userBox=document.createElement("div");
+    userBox.style.cssText="display:flex;align-items:center;gap:6px;margin-left:8px;padding-left:10px;border-left:1px solid #555;";
+    const ava=document.createElement("div");
+    ava.style.cssText=`width:28px;height:28px;border-radius:50%;background:${C.teal};color:#1A1814;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.75rem;`;
+    ava.textContent=(state.user.nombre||"U")[0].toUpperCase();
+    userBox.appendChild(ava);
+    const lo=document.createElement("button");
+    lo.textContent="Salir";
+    lo.title="Cerrar sesión ("+state.user.nombre+")";
+    lo.style.cssText="background:none;border:none;color:#C8C0B8;font-size:0.7rem;cursor:pointer;padding:4px 6px;";
+    lo.addEventListener("click",logout);
+    userBox.appendChild(lo);
+    rightSide.appendChild(userBox);
+  }
+
   header.appendChild(titleEl); header.appendChild(rightSide); app.appendChild(header);
 
   // Tabs
   const tabs=document.createElement("div"); tabs.className="app-tabs"; tabs.style.cssText=`display:flex;background:white;border-bottom:1px solid ${C.border};padding:0 14px;gap:2px;overflow-x:auto;`;
-  [["list","📋 Cotizaciones"],["day","🗓 Día"],["history","📂 Historial"]].forEach(([k,l])=>{
+  [["list","📋 Cotizaciones"],["day","🗓 Día"],["pedidos","📦 Pedidos LIO"],["history","📂 Historial"]].forEach(([k,l])=>{
+    let label=l;
+    if(k==="pedidos"){
+      const ret=state.pedidos.filter(p=>pedDiasRetraso(p)!==null).length;
+      if(ret>0) label=l+` <span style="background:#C03838;color:white;border-radius:10px;padding:1px 6px;font-size:0.6rem;">${ret}</span>`;
+    }
     const tb=document.createElement("button"); tb.style.cssText=`padding:12px 14px;font-size:0.83rem;font-weight:${state.tab===k?800:500};color:${state.tab===k?C.teal:C.stone};background:none;border:none;border-bottom:3px solid ${state.tab===k?C.teal:"transparent"};cursor:pointer;white-space:nowrap;flex-shrink:0;`;
-    tb.textContent=l; tb.addEventListener("click",()=>{state.tab=k;render();}); tabs.appendChild(tb);
+    tb.innerHTML=label; tb.addEventListener("click",()=>{state.tab=k;render();}); tabs.appendChild(tb);
   });
   app.appendChild(tabs);
 
   const content=document.createElement("div"); content.style.cssText="padding:14px;max-width:1100px;margin:0 auto;";
 
   if(state.tab==="list"){
+    // Mini-dashboard de pedidos
+    const sEnv=state.pedidos.filter(p=>p.estado==="enviado").length;
+    const sAut=state.pedidos.filter(p=>["recibido_fin","autorizado"].includes(p.estado)).length;
+    const sTrans=state.pedidos.filter(p=>p.estado==="solicitado").length;
+    const sRet=state.pedidos.filter(p=>pedDiasRetraso(p)!==null).length;
+    if(state.pedidos.length>0){
+      const mini=document.createElement("div");
+      mini.style.cssText=`background:white;border:1.5px solid ${C.border};border-radius:11px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;cursor:pointer;`;
+      mini.addEventListener("click",()=>{state.tab="pedidos";render();});
+      mini.innerHTML=`<span style="font-size:1.2rem;">📦</span>
+        <span style="font-size:0.82rem;color:${C.stone};"><b style="color:${C.ink};font-size:0.95rem;">${sEnv}</b> enviados</span>
+        <span style="font-size:0.82rem;color:${C.stone};">·</span>
+        <span style="font-size:0.82rem;color:${C.stone};"><b style="color:${C.green};font-size:0.95rem;">${sAut}</b> autorizados</span>
+        <span style="font-size:0.82rem;color:${C.stone};">·</span>
+        <span style="font-size:0.82rem;color:${C.stone};"><b style="color:${C.teal};font-size:0.95rem;">${sTrans}</b> en tránsito</span>
+        ${sRet?`<span style="font-size:0.82rem;color:${C.stone};">·</span><span style="font-size:0.82rem;font-weight:700;color:${C.red};">⚠️ ${sRet} retrasado${sRet>1?"s":""}</span>`:""}
+        <span style="margin-left:auto;font-size:0.78rem;font-weight:700;color:${C.teal};">Ver todos →</span>`;
+      content.appendChild(mini);
+    }
+
     if(stats.noAnest>0){
       const alert=document.createElement("div"); alert.style.cssText=`background:#FEF0E6;border:1.5px solid #F0C090;border-radius:11px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;cursor:pointer;`;
       alert.innerHTML=`<span>⚠️</span><span style="font-weight:700;color:${C.orange};">${stats.noAnest} paciente${stats.noAnest>1?"s":""} sin anestesia</span>`;
@@ -1574,20 +1748,6 @@ function render(){
         const row1=document.createElement("div"); row1.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
         const nameEl=document.createElement("div"); nameEl.style.cssText="font-weight:800;font-size:0.95rem;"; nameEl.textContent=r.name;
         row1.appendChild(nameEl); row1.appendChild(statusBadge(r.status));
-        const inCloud=state.cloudIds.has(r.id);
-        const cloudBadge=document.createElement("span");
-        cloudBadge.title=inCloud?"Confirmado en Supabase":"Solo en este dispositivo - toca para subir";
-        cloudBadge.style.cssText="font-size:0.78rem;padding:2px 7px;border-radius:12px;font-weight:800;white-space:nowrap;"+(inCloud?"background:#E8F4F5;color:#0D6B72;border:1.5px solid #0D6B72;cursor:default;":"background:#FEF0E6;color:#C05C10;border:1.5px solid #C05C10;cursor:pointer;");
-        cloudBadge.textContent=inCloud?"Nube OK":"Solo local";
-        if(!inCloud){cloudBadge.addEventListener("click",async(e)=>{e.stopPropagation();cloudBadge.textContent="Subiendo...";
-        const ok=await sbSave(r);if(ok){showToast(r.name+" subido a la nube","#1E7A48");render();}else{cloudBadge.textContent="Solo local";}});}
-        row1.appendChild(cloudBadge);
-        if(r.anticipoMonto&&parseFloat(r.anticipoMonto)>0){
-          const ab=document.createElement("span");
-          ab.style.cssText="font-size:0.78rem;padding:2px 8px;border-radius:12px;font-weight:800;background:#E8F0FA;color:#1A5FA8;border:1.5px solid #1A5FA8;white-space:nowrap;";
-          ab.textContent="Anticipo: "+new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(parseFloat(r.anticipoMonto));
-          row1.appendChild(ab);
-        }
         left.appendChild(row1);
 
         // Row 2: per-eye info with risk badge
@@ -1754,7 +1914,7 @@ function render(){
             <div style="font-weight:800;font-size:0.78rem;text-transform:uppercase;color:#888;letter-spacing:0.05em;margin-bottom:10px;font-family:-apple-system,sans-serif;">Cotización quirúrgica</div>
             ${eyeBlocks}
             <div style="margin-top:20px;padding:12px 16px;background:#F7F5F2;border-radius:8px;font-size:0.75rem;color:#888;line-height:1.6;font-family:-apple-system,sans-serif;">
-              <div style="font-size:1.05rem;font-weight:900;text-transform:uppercase;text-decoration:underline;margin-bottom:10px;color:#1A1814;letter-spacing:0.03em;">ESTA COTIZACIÓN TIENE UNA VIGENCIA DE 6 SEMANAS A PARTIR DE LA FECHA DE EXPEDICIÓN.</div>Esta cotización es informativa y puede estar sujeta a cambios según evolución clínica. Los precios incluyen los conceptos detallados y no incluyen medicamentos o estudios preoperatorios adicionales.
+              Esta cotización es informativa y puede estar sujeta a cambios según evolución clínica. Los precios incluyen los conceptos detallados y no incluyen medicamentos o estudios preoperatorios adicionales.
             </div>
             <div style="margin-top:16px;padding:14px 16px;background:#0D6B72;border-radius:8px;text-align:center;font-family:-apple-system,sans-serif;">
               <div style="color:white;font-size:1.05rem;font-weight:900;letter-spacing:0.01em;">Para programación llame al 459 100 0431 o al 459 134 5529</div>
@@ -1791,6 +1951,7 @@ function render(){
   }
 
   if(state.tab==="day") content.appendChild(buildDailyView());
+  if(state.tab==="pedidos") content.appendChild(buildPedidosView());
   if(state.tab==="history") content.appendChild(buildHistoryView());
   app.appendChild(content);
   if(state.modal) app.appendChild(buildModalDOM());
@@ -1853,10 +2014,542 @@ function weeklyBackup(force){
   setTimeout(()=>document.body.removeChild(a),500);
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// COE — LOGIN SCREEN, PEDIDOS LIO VIEW, PANEL LIO EN MODAL
+// ═══════════════════════════════════════════════════════════════════
+
+// ── LOGIN SCREEN ─────────────────────────────────────────────
+function renderLoginScreen(app){
+  const wrap=document.createElement("div");
+  wrap.style.cssText=`min-height:100vh;background:${C.cream};display:flex;align-items:center;justify-content:center;padding:20px;`;
+  const card=document.createElement("div");
+  card.style.cssText=`background:white;border-radius:18px;padding:32px 28px;width:100%;max-width:380px;box-shadow:0 12px 40px rgba(0,0,0,0.08);`;
+  card.innerHTML=`
+    <div style="text-align:center;font-size:0.7rem;font-weight:800;letter-spacing:4px;color:${C.teal};margin-bottom:6px;">COE</div>
+    <div style="text-align:center;font-size:1.5rem;font-weight:800;color:${C.ink};margin-bottom:4px;">Cirugías</div>
+    <div style="text-align:center;font-size:0.8rem;color:${C.stone};margin-bottom:24px;">Selecciona usuario e ingresa tu PIN</div>
+    <div id="cot-user-list" style="margin-bottom:18px;"></div>
+    <div id="cot-pin-section" style="display:none;">
+      <div style="font-size:0.7rem;font-weight:700;color:${C.stone};text-align:center;margin-bottom:10px;letter-spacing:0.5px;">INGRESA TU PIN</div>
+      <div id="cot-pin-dots" style="display:flex;justify-content:center;gap:10px;margin-bottom:16px;">
+        ${[0,1,2,3].map(i=>`<div id="cot-pd-${i}" style="width:14px;height:14px;border-radius:50%;background:#D5CFC8;transition:.2s;"></div>`).join("")}
+      </div>
+      <div id="cot-pin-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;max-width:280px;margin:0 auto;"></div>
+      <div id="cot-pin-err" style="text-align:center;color:${C.red};font-size:0.78rem;margin-top:10px;font-weight:700;min-height:18px;"></div>
+    </div>
+  `;
+  wrap.appendChild(card);
+  app.appendChild(wrap);
+  loadCotUsersAndRender();
+  const grid=card.querySelector("#cot-pin-grid");
+  const keys=["1","2","3","4","5","6","7","8","9","","0","⌫"];
+  keys.forEach(k=>{
+    const b=document.createElement("button");
+    b.textContent=k;
+    if(!k){ b.style.visibility="hidden"; }
+    b.style.cssText=`padding:14px;font-size:1.2rem;font-weight:600;background:${C.cream};border:1px solid ${C.border};border-radius:8px;cursor:pointer;color:${C.ink};font-family:inherit;`;
+    b.addEventListener("click",()=>cotPk(k));
+    grid.appendChild(b);
+  });
+}
+
+let _cotSelUser=null, _cotPinBuf="";
+async function loadCotUsersAndRender(){
+  const list=document.getElementById("cot-user-list");
+  if(!list) return;
+  list.innerHTML=`<div style="text-align:center;color:${C.stone};font-size:0.8rem;">Cargando…</div>`;
+  const users=await listCotUsuarios();
+  if(!users.length){
+    list.innerHTML=`<div style="background:#FDEAEA;border:1.5px solid #F0C0C0;border-radius:10px;padding:12px;font-size:0.8rem;color:${C.red};text-align:center;">No hay usuarios. El admin debe crear usuarios desde Supabase Studio.</div>`;
+    return;
+  }
+  list.innerHTML="";
+  users.forEach(u=>{
+    const b=document.createElement("div");
+    b.style.cssText=`display:flex;align-items:center;gap:10px;padding:11px 14px;background:${C.cream};border:1.5px solid ${C.border};border-radius:10px;cursor:pointer;margin-bottom:6px;transition:.2s;`;
+    b.dataset.uid=u.id;
+    b.innerHTML=`<div style="width:36px;height:36px;border-radius:50%;background:${C.tealPale};color:${C.teal};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.9rem;">${u.nombre[0]}</div>
+      <div><div style="font-weight:700;font-size:0.9rem;color:${C.ink};">${u.nombre}</div>
+      <div style="font-size:0.7rem;color:${C.stone};text-transform:capitalize;">${u.rol||"recepción"}</div></div>`;
+    b.addEventListener("click",()=>{
+      list.querySelectorAll("[data-uid]").forEach(x=>{x.style.borderColor=C.border;x.style.background=C.cream;});
+      b.style.borderColor=C.teal; b.style.background=C.tealPale;
+      _cotSelUser=u; _cotPinBuf="";
+      [0,1,2,3].forEach(i=>{const d=document.getElementById("cot-pd-"+i);if(d)d.style.background="#D5CFC8";});
+      const ps=document.getElementById("cot-pin-section"); if(ps) ps.style.display="block";
+      const err=document.getElementById("cot-pin-err"); if(err) err.textContent="";
+    });
+    list.appendChild(b);
+  });
+}
+
+function cotPk(k){
+  if(k==="⌫"){ _cotPinBuf=_cotPinBuf.slice(0,-1); cotUpdDots(); return; }
+  if(_cotPinBuf.length>=4) return;
+  _cotPinBuf+=k; cotUpdDots();
+  if(_cotPinBuf.length===4) cotVerPin();
+}
+function cotUpdDots(){
+  for(let i=0;i<4;i++){
+    const d=document.getElementById("cot-pd-"+i);
+    if(d) d.style.background=i<_cotPinBuf.length?C.teal:"#D5CFC8";
+  }
+}
+async function cotVerPin(){
+  if(!_cotSelUser){ return; }
+  const r=await loginCotUsr(_cotSelUser.nombre,_cotPinBuf);
+  if(!r.ok){
+    const err=document.getElementById("cot-pin-err");
+    if(err) err.textContent=r.err;
+    _cotPinBuf=""; cotUpdDots();
+    setTimeout(()=>{const e=document.getElementById("cot-pin-err");if(e)e.textContent="";},2500);
+    return;
+  }
+  state.user=r.user;
+  saveSession();
+  pedToast("Bienvenido "+state.user.nombre,"success");
+  loadPedidos().then(render);
+  render();
+}
+
+// ── PEDIDOS LIO — VISTA PRINCIPAL ────────────────────────────
+function buildPedidosView(){
+  const wrap=document.createElement("div");
+  const sEnv=state.pedidos.filter(p=>p.estado==="enviado").length;
+  const sAut=state.pedidos.filter(p=>["recibido_fin","autorizado"].includes(p.estado)).length;
+  const sTrans=state.pedidos.filter(p=>p.estado==="solicitado").length;
+  const sRet=state.pedidos.filter(p=>pedDiasRetraso(p)!==null).length;
+  const sActivos=state.pedidos.filter(p=>!["cancelado","invalidado","entregado"].includes(p.estado)).length;
+
+  const hdr=document.createElement("div");
+  hdr.style.cssText="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;";
+  const stats=[
+    {k:"todos",lbl:"Activos",val:sActivos,color:C.teal},
+    {k:"enviados",lbl:"📤 Nuevos",val:sEnv,color:C.gold},
+    {k:"transito",lbl:"🚚 Tránsito",val:sTrans,color:C.blue},
+    {k:"retrasados",lbl:"⚠️ Retrasados",val:sRet,color:sRet?C.red:C.green},
+  ];
+  stats.forEach(s=>{
+    const c=document.createElement("div");
+    c.style.cssText=`background:white;border:1.5px solid ${state.pedFilter===s.k?s.color:C.border};border-radius:12px;padding:12px;cursor:pointer;transition:.2s;`;
+    c.innerHTML=`<div style="font-size:0.65rem;font-weight:700;color:${C.stone};text-transform:uppercase;letter-spacing:.5px;">${s.lbl}</div>
+      <div style="font-size:1.6rem;font-weight:800;color:${s.color};margin-top:4px;">${s.val}</div>`;
+    c.addEventListener("click",()=>{state.pedFilter=s.k;render();});
+    hdr.appendChild(c);
+  });
+  wrap.appendChild(hdr);
+
+  const filtBar=document.createElement("div");
+  filtBar.style.cssText="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;";
+  const srch=document.createElement("input"); srch.type="text"; srch.placeholder="🔍 Paciente o expediente"; srch.value=state.pedSearch;
+  srch.style.cssText=`flex:1;min-width:160px;padding:8px 12px;border:1.5px solid ${C.border};border-radius:9px;font-size:0.85rem;font-family:inherit;`;
+  srch.addEventListener("input",e=>{state.pedSearch=e.target.value;clearTimeout(window._pedT);window._pedT=setTimeout(render,250);});
+  filtBar.appendChild(srch);
+  const refBtn=document.createElement("button"); refBtn.textContent="🔄 Sincronizar";
+  refBtn.style.cssText=`background:${C.teal};color:white;border:none;padding:8px 14px;border-radius:9px;font-weight:700;font-size:0.83rem;cursor:pointer;font-family:inherit;`;
+  refBtn.addEventListener("click",async()=>{refBtn.textContent="⟳…";await loadPedidos();render();pedToast("Sincronizado","success");});
+  filtBar.appendChild(refBtn);
+  wrap.appendChild(filtBar);
+
+  let list=state.pedidos.slice();
+  if(state.pedFilter==="enviados") list=list.filter(p=>p.estado==="enviado");
+  else if(state.pedFilter==="transito") list=list.filter(p=>p.estado==="solicitado");
+  else if(state.pedFilter==="retrasados") list=list.filter(p=>pedDiasRetraso(p)!==null);
+  else list=list.filter(p=>!["entregado","cancelado","invalidado"].includes(p.estado));
+  if(state.pedSearch){
+    const q=state.pedSearch.toLowerCase();
+    list=list.filter(p=>(p.paciente_nombre||"").toLowerCase().includes(q) || (p.expediente||"").toLowerCase().includes(q));
+  }
+  list.sort((a,b)=>{
+    const ra=pedDiasRetraso(a)||0, rb=pedDiasRetraso(b)||0;
+    if(ra||rb) return rb-ra;
+    return new Date(b.created_at)-new Date(a.created_at);
+  });
+
+  if(!list.length){
+    const empty=document.createElement("div");
+    empty.style.cssText=`text-align:center;padding:40px 20px;color:${C.stone};`;
+    empty.innerHTML=`<div style="font-size:2.5rem;margin-bottom:10px;">📦</div><div style="font-weight:600;">Sin pedidos en este filtro</div>`;
+    wrap.appendChild(empty);
+    return wrap;
+  }
+
+  list.forEach(p=>wrap.appendChild(buildPedCard(p)));
+  return wrap;
+}
+
+function buildPedCard(p){
+  const card=document.createElement("div");
+  const ret=pedDiasRetraso(p);
+  const en=state.entidades.find(e=>e.id===(p.proveedor_id||p.proveedor_sugerido_id));
+  const cat=state.lioCatalog.find(c=>c.id===p.catalogo_id);
+  const isPrem=cat?.premium;
+  const borderC=ret>=3?C.red:(ret!==null?C.orange:C.border);
+  card.style.cssText=`background:white;border:1.5px solid ${borderC};border-left:4px solid ${borderC};border-radius:12px;padding:14px;margin-bottom:10px;`;
+  const labels={enviado:"📤 ENVIADO",recibido_fin:"📥 RECIBIDO POR FINANZAS",autorizado:"✅ AUTORIZADO",solicitado:"🚚 SOLICITADO",recibido_clinica:"🟢 EN CLÍNICA",entregado:"✓ ENTREGADO",cancelado:"❌ CANCELADO",invalidado:"⚠️ INVALIDADO"};
+  const colors={enviado:C.gold,recibido_fin:C.blue,autorizado:C.green,solicitado:C.teal,recibido_clinica:C.green,entregado:C.stone,cancelado:C.red,invalidado:C.red};
+  let lioDesc=p.lio_modelo||"—";
+  if(p.lio_power) lioDesc+=" "+p.lio_power+"D";
+  if(p.lio_cyl) lioDesc+=" / Cil "+p.lio_cyl+" eje "+(p.lio_axis||"?")+"°";
+  if(p.lio_add) lioDesc+=" / Adic "+p.lio_add;
+
+  const isAdmin=state.user?.rol==="admin"||state.user?.rol==="director";
+
+  card.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <span style="background:${colors[p.estado]||C.stone}22;color:${colors[p.estado]||C.stone};padding:3px 10px;border-radius:14px;font-size:0.7rem;font-weight:800;">${labels[p.estado]||p.estado}</span>
+        ${isPrem?`<span style="background:#A371F722;color:#A371F7;padding:3px 8px;border-radius:14px;font-size:0.65rem;font-weight:800;border:1px solid #A371F7;">🔥 PREMIUM</span>`:""}
+        ${ret>=3?`<span style="background:${C.red}22;color:${C.red};padding:3px 8px;border-radius:14px;font-size:0.65rem;font-weight:800;">🔴 RETRASADO ${ret}d</span>`:ret!==null?`<span style="background:${C.orange}22;color:${C.orange};padding:3px 8px;border-radius:14px;font-size:0.65rem;font-weight:800;">⏰ +${ret}d</span>`:""}
+        <span style="font-family:monospace;font-size:0.7rem;color:${C.stone};">${p.folio||""}</span>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.82rem;">
+      <div><b style="color:${C.stone};font-size:0.65rem;text-transform:uppercase;display:block;letter-spacing:.5px;">Paciente</b>${p.paciente_nombre||"—"} · ${p.ojo} · Exp ${p.expediente||"—"}</div>
+      <div><b style="color:${C.stone};font-size:0.65rem;text-transform:uppercase;display:block;letter-spacing:.5px;">LIO</b>${lioDesc}</div>
+      <div><b style="color:${C.stone};font-size:0.65rem;text-transform:uppercase;display:block;letter-spacing:.5px;">Anticipo</b>${fmt(p.anticipo_monto)||"—"} ${p.anticipo_comprobante_url?`· <a href="${p.anticipo_comprobante_url}" target="_blank" style="color:${C.blue};font-weight:700;">📷 ver</a>`:""}</div>
+      <div><b style="color:${C.stone};font-size:0.65rem;text-transform:uppercase;display:block;letter-spacing:.5px;">Proveedor</b>${en?.nombre||"— por asignar —"}</div>
+      ${p.fecha_entrega_estimada?`<div style="grid-column:span 2;"><b style="color:${C.stone};font-size:0.65rem;text-transform:uppercase;display:block;letter-spacing:.5px;">Llegada estimada</b>${fmtD(p.fecha_entrega_estimada)} ${ret!==null?`<span style="color:${C.red};font-weight:700;">(${ret}d retraso)</span>`:""}</div>`:""}
+    </div>
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid ${C.border};display:flex;gap:6px;flex-wrap:wrap;">
+      <button class="ped-detail-btn" data-pid="${p.id}" style="background:${C.cream};border:1px solid ${C.border};padding:6px 12px;border-radius:8px;font-size:0.78rem;font-weight:700;cursor:pointer;color:${C.ink};font-family:inherit;">👁️ Ver timeline</button>
+      ${isAdmin && !["cancelado","invalidado","entregado","recibido_clinica"].includes(p.estado)?`<button class="ped-cancel-btn" data-pid="${p.id}" style="background:${C.red}11;border:1px solid ${C.red};padding:6px 12px;border-radius:8px;font-size:0.78rem;font-weight:700;cursor:pointer;color:${C.red};font-family:inherit;">❌ Cancelar</button>`:""}
+    </div>
+  `;
+  card.querySelector(".ped-detail-btn")?.addEventListener("click",()=>showPedDetail(p.id));
+  card.querySelector(".ped-cancel-btn")?.addEventListener("click",()=>cancelarPedido(p.id));
+  return card;
+}
+
+function showPedDetail(pedId){
+  const p=state.pedidos.find(x=>x.id===pedId); if(!p) return;
+  const en=state.entidades.find(e=>e.id===(p.proveedor_id||p.proveedor_sugerido_id));
+  const logs=state.pedidosLog.filter(l=>l.pedido_id===p.id).sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
+  const ret=pedDiasRetraso(p);
+
+  const ov=document.createElement("div");
+  ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9000;display:flex;align-items:center;justify-content:center;padding:16px;";
+  const box=document.createElement("div");
+  box.style.cssText="background:white;border-radius:14px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto;";
+
+  let lioDesc=p.lio_modelo||"—";
+  if(p.lio_power) lioDesc+=" "+p.lio_power+"D";
+  if(p.lio_cyl) lioDesc+=" / Cil "+p.lio_cyl+" eje "+(p.lio_axis||"?")+"°";
+  if(p.lio_add) lioDesc+=" / Adic "+p.lio_add;
+
+  const trs=[];
+  trs.push({done:true,lbl:"Capturado por "+(p.capturado_por||"—"),meta:p.capturado_at?fmtD(p.capturado_at.split("T")[0]):""});
+  trs.push({done:true,lbl:"✓ Respaldado en Cotizaciones",meta:p.enviado_at?fmtD(p.enviado_at.split("T")[0]):""});
+  if(p.anticipo_comprobante_url) trs.push({done:true,lbl:"✓ Anticipo "+(fmt(p.anticipo_monto)||""),meta:`<a href="${p.anticipo_comprobante_url}" target="_blank" style="color:${C.blue};">📷 ver foto</a>`});
+  if(p.recibido_fin_at) trs.push({done:true,lbl:"✓ Recibido por Finanzas",meta:fmtD(p.recibido_fin_at.split("T")[0])+" · "+(p.recibido_fin_por||"—")});
+  else trs.push({act:true,lbl:"⏳ Esperando que Finanzas lo abra",meta:"—"});
+  if(p.autorizado_at) trs.push({done:true,lbl:"✓ Autorizado · "+(en?.nombre||"—"),meta:fmtD(p.autorizado_at.split("T")[0])+" · "+(p.autorizado_por||"—")});
+  if(p.solicitado_at) trs.push({done:true,lbl:"✓ Solicitado a proveedor"+(p.numero_pedido_proveedor?" (No. "+p.numero_pedido_proveedor+")":""),meta:fmtD(p.solicitado_at.split("T")[0])});
+  if(p.fecha_entrega_estimada){
+    const cambios=logs.filter(l=>l.accion==="cambiar_fecha");
+    trs.push({warn:ret!==null,act:!p.recibido_clinica_at&&ret===null,done:!!p.recibido_clinica_at,lbl:"🚚 Llegada estimada: "+fmtD(p.fecha_entrega_estimada)+(ret!==null?` <span style="color:${C.red};font-weight:700;">(retraso ${ret}d)</span>`:""),meta:cambios.length?cambios.length+" cambio(s) de fecha":""});
+  }
+  if(p.recibido_clinica_at) trs.push({done:true,lbl:"🟢 Recibido en clínica",meta:fmtD(p.recibido_clinica_at.split("T")[0])+" · "+(p.recibido_clinica_por||"—")});
+  if(p.entregado_at) trs.push({done:true,lbl:"✓ Entregado (cirugía realizada)",meta:fmtD(p.entregado_at.split("T")[0])});
+  if(p.cancelado_at) trs.push({fail:true,lbl:"❌ "+(p.estado==="invalidado"?"INVALIDADO":"CANCELADO"),meta:fmtD(p.cancelado_at.split("T")[0])+" · "+(p.cancelado_por||"—")+" · "+(p.motivo_cancelacion||"")});
+
+  const isAdmin=state.user?.rol==="admin"||state.user?.rol==="director";
+
+  box.innerHTML=`
+    <div style="padding:16px 20px;border-bottom:1px solid ${C.border};display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-weight:800;font-size:1rem;">Pedido ${p.folio||""}</span>
+      <button id="ped-close" style="background:${C.cream};border:none;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:0.9rem;font-family:inherit;">✕</button>
+    </div>
+    <div style="padding:18px;">
+      <div style="background:${C.cream};padding:12px;border-radius:10px;margin-bottom:14px;">
+        <div style="font-weight:700;font-size:1rem;">${p.paciente_nombre||"—"} <span style="color:${C.stone};font-weight:400;">— Exp ${p.expediente||""} — Ojo ${p.ojo}</span></div>
+        <div style="font-size:0.78rem;color:${C.stone};margin-top:4px;">📞 ${p.paciente_tel1||"—"}${p.paciente_tel2?" · "+p.paciente_tel2:""}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.82rem;margin-bottom:16px;">
+        <div><b style="color:${C.stone};font-size:0.65rem;text-transform:uppercase;display:block;">LIO</b>${lioDesc}</div>
+        <div><b style="color:${C.stone};font-size:0.65rem;text-transform:uppercase;display:block;">Anticipo</b>${fmt(p.anticipo_monto)||"—"} · ${p.anticipo_metodo||"—"}</div>
+        <div><b style="color:${C.stone};font-size:0.65rem;text-transform:uppercase;display:block;">Proveedor</b>${en?.nombre||"— por asignar —"}</div>
+        ${p.notas?`<div style="grid-column:span 2;"><b style="color:${C.stone};font-size:0.65rem;text-transform:uppercase;display:block;">Notas</b>${p.notas}</div>`:""}
+      </div>
+      <h4 style="font-size:0.85rem;margin-bottom:10px;">📋 Timeline</h4>
+      <div style="position:relative;padding-left:30px;">
+        <div style="position:absolute;left:11px;top:5px;bottom:5px;width:2px;background:${C.border};"></div>
+        ${trs.map(t=>{
+          const c=t.done?C.green:(t.fail?C.red:(t.warn?C.orange:(t.act?C.teal:C.stone)));
+          return `<div style="position:relative;padding:6px 0;font-size:0.83rem;">
+            <div style="position:absolute;left:-25px;top:10px;width:12px;height:12px;border-radius:50%;background:${c};border:2px solid white;box-shadow:0 0 0 2px ${c}33;"></div>
+            <div style="font-weight:600;">${t.lbl}</div>
+            ${t.meta?`<div style="color:${C.stone};font-size:0.72rem;margin-top:2px;">${t.meta}</div>`:""}
+          </div>`;
+        }).join("")}
+      </div>
+    </div>
+    <div style="padding:12px 18px;border-top:1px solid ${C.border};display:flex;justify-content:flex-end;gap:8px;">
+      ${isAdmin && !["cancelado","invalidado","entregado","recibido_clinica"].includes(p.estado)?`<button id="ped-do-cancel" style="background:${C.red};color:white;border:none;padding:8px 14px;border-radius:9px;font-weight:700;font-size:0.85rem;cursor:pointer;font-family:inherit;">Cancelar pedido</button>`:""}
+      <button id="ped-close2" style="background:${C.cream};border:1px solid ${C.border};padding:8px 14px;border-radius:9px;font-weight:700;font-size:0.85rem;cursor:pointer;font-family:inherit;">Cerrar</button>
+    </div>
+  `;
+  ov.appendChild(box); document.body.appendChild(ov);
+  const close=()=>document.body.removeChild(ov);
+  box.querySelector("#ped-close").addEventListener("click",close);
+  box.querySelector("#ped-close2").addEventListener("click",close);
+  box.querySelector("#ped-do-cancel")?.addEventListener("click",()=>{close();cancelarPedido(p.id);});
+}
+
+async function cancelarPedido(pedId){
+  if(!(state.user?.rol==="admin"||state.user?.rol==="director")){
+    pedToast("Solo admin/director puede cancelar","error");
+    return;
+  }
+  const p=state.pedidos.find(x=>x.id===pedId); if(!p) return;
+  const motivo=prompt("Motivo de cancelación (obligatorio):");
+  if(!motivo||!motivo.trim()) return;
+  if(!confirm(`¿Cancelar el pedido de ${p.paciente_nombre} (${p.ojo})?\n\nLa devolución del anticipo se gestiona fuera del sistema.`)) return;
+  try{
+    await sbPatch("qui_pedidos_lio","?id=eq."+pedId,{
+      estado:"cancelado",
+      cancelado_at:new Date().toISOString(),
+      cancelado_por:state.user?.nombre||"—",
+      motivo_cancelacion:motivo.trim()
+    });
+    await sbInsertReturn("qui_pedidos_lio_log",{pedido_id:pedId,accion:"cancelar",usuario:state.user?.nombre||"—",comentario:motivo.trim()});
+    await loadPedidos();
+    pedToast("Pedido cancelado","warning");
+    render();
+  }catch(e){ pedToast("Error: "+e.message,"error"); }
+}
+
+// ── PANEL DE PEDIDO LIO EN MODAL DE COTIZACIÓN ───────────────
+function buildLioOrderPanel(eye, eyeData){
+  // Si ya hay un pedido activo, mostrar estado en lugar del form
+  const existingPed = state.modal!=="new" ? state.pedidos.find(p=>
+    p.cotizacion_paciente_id===state.modal &&
+    p.ojo===eye &&
+    !["cancelado","invalidado"].includes(p.estado)
+  ) : null;
+
+  const wrap=document.createElement("div");
+  wrap.style.cssText=`margin-top:14px;padding:14px;background:#FFF8F0;border:1.5px solid ${C.gold}55;border-radius:11px;`;
+  const title=document.createElement("div");
+  title.style.cssText=`font-weight:800;font-size:0.88rem;color:${C.gold};margin-bottom:10px;display:flex;align-items:center;gap:6px;`;
+  title.innerHTML=`📦 Pedido de LIO — ${eye}`;
+  wrap.appendChild(title);
+
+  if(existingPed){
+    const labels={enviado:"📤 Enviado a Finanzas — esperando confirmación",recibido_fin:"📥 Recibido por Finanzas",autorizado:"✅ Autorizado — esperando solicitud al proveedor",solicitado:"🚚 Solicitado al proveedor",recibido_clinica:"🟢 Recibido en clínica",entregado:"✓ Entregado",cancelado:"❌ Cancelado",invalidado:"⚠️ Invalidado"};
+    const info=document.createElement("div");
+    info.style.cssText="background:white;padding:10px 12px;border-radius:8px;font-size:0.82rem;";
+    info.innerHTML=`<div style="font-weight:700;color:${C.green};margin-bottom:6px;">✓ Pedido ya creado: ${existingPed.folio||""}</div>
+      <div style="color:${C.stone};font-size:0.78rem;margin-bottom:4px;">${labels[existingPed.estado]||existingPed.estado}</div>
+      <div style="font-size:0.78rem;">Anticipo: <b>${fmt(existingPed.anticipo_monto)||"—"}</b></div>
+      ${existingPed.fecha_entrega_estimada?`<div style="font-size:0.78rem;">Llegada estimada: <b>${fmtD(existingPed.fecha_entrega_estimada)}</b></div>`:""}
+      <div style="font-size:0.72rem;color:${C.stone};margin-top:6px;font-style:italic;">⚠️ Si modificas tipo, poder, cilindro, eje o adición del LIO, este pedido se invalidará automáticamente.</div>`;
+    wrap.appendChild(info);
+    const verBtn=document.createElement("button");
+    verBtn.type="button";
+    verBtn.textContent="👁️ Ver detalle del pedido";
+    verBtn.style.cssText=`margin-top:8px;background:${C.cream};border:1px solid ${C.border};padding:7px 12px;border-radius:8px;font-size:0.78rem;font-weight:700;cursor:pointer;font-family:inherit;`;
+    verBtn.addEventListener("click",e=>{e.preventDefault();showPedDetail(existingPed.id);});
+    wrap.appendChild(verBtn);
+    return wrap;
+  }
+
+  // Si la cotización es nueva, avisar que primero hay que guardar
+  if(state.modal==="new"){
+    const note=document.createElement("div");
+    note.style.cssText=`background:white;padding:10px 12px;border-radius:8px;font-size:0.78rem;color:${C.stone};font-style:italic;`;
+    note.textContent="💡 Guarda primero la cotización; al volver a editarla podrás generar el pedido del LIO.";
+    wrap.appendChild(note);
+    return wrap;
+  }
+
+  if(!state.lioPanel[eye]) state.lioPanel[eye]={catalogoId:"",monto:"",metodo:"transferencia",file:null};
+  const buf=state.lioPanel[eye];
+
+  const cat=state.lioCatalog;
+  const grid=document.createElement("div");
+  grid.style.cssText="display:grid;grid-template-columns:1fr 1fr;gap:10px;";
+
+  // Modelo
+  const modWrap=document.createElement("div"); modWrap.style.gridColumn="1/-1";
+  const modLbl=document.createElement("label"); modLbl.style.cssText=`display:block;font-size:0.7rem;font-weight:700;color:${C.stone};margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px;`;
+  modLbl.textContent="Modelo del LIO *";
+  modWrap.appendChild(modLbl);
+  const modSel=document.createElement("select");
+  modSel.style.cssText=`width:100%;padding:9px 11px;border:1.5px solid ${C.border};border-radius:9px;font-size:0.88rem;background:white;font-family:inherit;`;
+  modSel.innerHTML=`<option value="">— Seleccionar modelo —</option>`+
+    cat.map(c=>`<option value="${c.id}" ${buf.catalogoId===c.id?"selected":""}>${c.modelo}${c.premium?" 🔥":""}</option>`).join("")+
+    `<option value="otro" ${buf.catalogoId==="otro"?"selected":""}>Otro (sin catálogo)</option>`;
+  modSel.addEventListener("change",e=>{
+    buf.catalogoId=e.target.value;
+    if(buf.catalogoId&&buf.catalogoId!=="otro"){
+      const m=cat.find(c=>c.id===buf.catalogoId);
+      if(m && m.anticipo_minimo && !buf.monto) buf.monto=m.anticipo_minimo;
+    }
+    render();
+  });
+  modWrap.appendChild(modSel);
+  if(buf.catalogoId&&buf.catalogoId!=="otro"){
+    const m=cat.find(c=>c.id===buf.catalogoId);
+    if(m){
+      const inf=document.createElement("div"); inf.style.cssText=`font-size:0.72rem;color:${C.stone};margin-top:4px;`;
+      const prov=state.entidades.find(x=>x.id===m.proveedor_id);
+      const parts=[];
+      if(prov) parts.push("Proveedor sugerido: <b>"+prov.nombre+"</b>");
+      if(m.anticipo_minimo) parts.push("Anticipo mínimo: <b>"+fmt(m.anticipo_minimo)+"</b>");
+      if(m.dias_entrega_sugeridos) parts.push("Entrega ~"+m.dias_entrega_sugeridos+" días");
+      inf.innerHTML="💡 "+parts.join(" · ");
+      modWrap.appendChild(inf);
+    }
+  }
+  if(!cat.length){
+    const inf=document.createElement("div"); inf.style.cssText=`font-size:0.72rem;color:${C.orange};margin-top:4px;font-weight:600;`;
+    inf.textContent="⚠️ Catálogo vacío — pide al admin que lo llene en COE Finanzas";
+    modWrap.appendChild(inf);
+  }
+  grid.appendChild(modWrap);
+
+  // Anticipo
+  const aWrap=document.createElement("div");
+  const aLbl=document.createElement("label"); aLbl.style.cssText=modLbl.style.cssText; aLbl.textContent="Anticipo (MXN) *";
+  aWrap.appendChild(aLbl);
+  const aInp=document.createElement("input"); aInp.type="number"; aInp.step="100"; aInp.value=buf.monto||"";
+  aInp.style.cssText=modSel.style.cssText; aInp.placeholder="Ej: 5000";
+  aInp.addEventListener("input",e=>{buf.monto=e.target.value;});
+  aWrap.appendChild(aInp);
+  grid.appendChild(aWrap);
+
+  // Método
+  const mWrap=document.createElement("div");
+  const mLbl=document.createElement("label"); mLbl.style.cssText=modLbl.style.cssText; mLbl.textContent="Método de pago";
+  mWrap.appendChild(mLbl);
+  const mSel=document.createElement("select"); mSel.style.cssText=modSel.style.cssText;
+  ["efectivo","transferencia","tarjeta"].forEach(v=>{
+    const o=document.createElement("option"); o.value=v; o.textContent=v[0].toUpperCase()+v.slice(1);
+    if(buf.metodo===v) o.selected=true; mSel.appendChild(o);
+  });
+  mSel.addEventListener("change",e=>{buf.metodo=e.target.value;});
+  mWrap.appendChild(mSel);
+  grid.appendChild(mWrap);
+
+  // Comprobante (cámara, galería o archivo)
+  const fWrap=document.createElement("div"); fWrap.style.gridColumn="1/-1";
+  const fLbl=document.createElement("label"); fLbl.style.cssText=modLbl.style.cssText; fLbl.textContent="📷 Comprobante de pago * (cámara, galería o archivo)";
+  fWrap.appendChild(fLbl);
+  const fInp=document.createElement("input"); fInp.type="file"; fInp.accept="image/*,application/pdf";
+  fInp.style.cssText=`width:100%;padding:9px;border:1.5px dashed ${C.border};border-radius:9px;font-size:0.82rem;background:white;cursor:pointer;font-family:inherit;`;
+  fInp.addEventListener("change",e=>{
+    const f=e.target.files[0]; if(!f) return;
+    buf.file=f;
+    fStat.textContent=`✓ ${f.name} (${(f.size/1024).toFixed(1)} KB)`;
+    fStat.style.color=C.green;
+  });
+  fWrap.appendChild(fInp);
+  const fStat=document.createElement("div");
+  fStat.style.cssText=`font-size:0.72rem;color:${buf.file?C.green:C.stone};margin-top:4px;`;
+  fStat.textContent=buf.file?`✓ ${buf.file.name}`:"Adjunta foto del comprobante de pago";
+  fWrap.appendChild(fStat);
+  grid.appendChild(fWrap);
+
+  wrap.appendChild(grid);
+
+  const sendBtn=document.createElement("button");
+  sendBtn.type="button";
+  sendBtn.textContent="📤 Enviar Pedido a Finanzas";
+  sendBtn.style.cssText=`margin-top:12px;width:100%;background:${C.gold};color:white;border:none;padding:11px;border-radius:10px;font-weight:800;font-size:0.9rem;cursor:pointer;font-family:inherit;`;
+  sendBtn.addEventListener("click",e=>{e.preventDefault();enviarPedidoLIO(eye);});
+  wrap.appendChild(sendBtn);
+
+  return wrap;
+}
+
+async function enviarPedidoLIO(eye){
+  const buf=state.lioPanel[eye]; if(!buf){ pedToast("Llena los datos del pedido","error"); return; }
+  const f=state.form;
+  const eyeData=f.eyes?.[eye];
+  if(!eyeData||!eyeData.lioNeeded){ pedToast("Activa primero el LIO en este ojo","error"); return; }
+  if(!f.name.trim()){ pedToast("Llena el nombre del paciente primero","error"); return; }
+  if(!String(f.expediente||"").trim()){ pedToast("El expediente es obligatorio","error"); return; }
+  if(!buf.catalogoId){ pedToast("Selecciona el modelo de LIO","error"); return; }
+  if(!buf.monto||parseFloat(buf.monto)<=0){ pedToast("Captura el monto del anticipo","error"); return; }
+  if(!buf.file){ pedToast("La foto/archivo del comprobante es obligatorio","error"); return; }
+  if(buf.catalogoId&&buf.catalogoId!=="otro"){
+    const m=state.lioCatalog.find(c=>c.id===buf.catalogoId);
+    if(m&&m.anticipo_minimo&&parseFloat(buf.monto)<parseFloat(m.anticipo_minimo)){
+      if(!confirm(`El anticipo mínimo sugerido es ${fmt(m.anticipo_minimo)} y estás capturando ${fmt(buf.monto)}. ¿Continuar?`)) return;
+    }
+  }
+  if(state.modal==="new"){ pedToast("Guarda primero la cotización","warning"); return; }
+  const cotId=state.modal;
+
+  pedToast("Subiendo comprobante...","info");
+  try{
+    const tmpId=cotId+"-"+eye;
+    const fileUrl=await uploadAnticipoFile(buf.file,tmpId);
+    if(!fileUrl) throw new Error("Error subiendo comprobante (revisa policies del bucket)");
+
+    let catId=null, provSugId=null, lioModeloSnap="", lioTipoSnap="";
+    if(buf.catalogoId&&buf.catalogoId!=="otro"){
+      const m=state.lioCatalog.find(c=>c.id===buf.catalogoId);
+      if(m){ catId=m.id; provSugId=m.proveedor_id; lioModeloSnap=m.modelo; lioTipoSnap=m.tipo; }
+    } else {
+      lioModeloSnap=eyeData.lioType||"Otro";
+      lioTipoSnap=eyeData.lioType||"otro";
+    }
+
+    const pedido={
+      cotizacion_paciente_id:cotId,
+      ojo:eye,
+      expediente:String(f.expediente).trim(),
+      paciente_nombre:f.name.trim(),
+      paciente_tel1:f.tel1||null,
+      paciente_tel2:f.tel2||null,
+      lio_modelo:lioModeloSnap,
+      lio_tipo:lioTipoSnap,
+      lio_power:eyeData.lioPower||null,
+      lio_cyl:eyeData.lioCyl||null,
+      lio_axis:eyeData.lioAxis||null,
+      lio_add:eyeData.lioAdd||null,
+      lio_notas:eyeData.lioNotes||null,
+      catalogo_id:catId,
+      proveedor_sugerido_id:provSugId,
+      anticipo_monto:parseFloat(buf.monto),
+      anticipo_comprobante_url:fileUrl,
+      anticipo_metodo:buf.metodo||"transferencia",
+      estado:"enviado",
+      capturado_por:state.user?.nombre||"—"
+    };
+
+    const created=await sbInsertReturn("qui_pedidos_lio",pedido);
+    await sbInsertReturn("qui_pedidos_lio_log",{
+      pedido_id:created.id,
+      accion:"crear",
+      usuario:state.user?.nombre||"—",
+      comentario:`Pedido creado para ${f.name} (Exp ${f.expediente}, ${eye}) — anticipo ${fmt(parseFloat(buf.monto))}`
+    });
+
+    state.lioPanel[eye]=null;
+    await loadPedidos();
+    pedToast("✓ Pedido respaldado en COE Cotizaciones","success");
+    setTimeout(()=>pedToast("📤 Enviado a Finanzas — esperando confirmación","info"),1500);
+    render();
+  }catch(e){
+    console.error(e);
+    pedToast("Error: "+e.message,"error");
+  }
+}
+
 // ── INIT ──────────────────────────────────────────────────────
-loadRecords(); // async — loads local first, then syncs from Supabase
-render();
-setTimeout(()=>{ weeklyBackup(false); }, 3000);
+async function initCoeCot(){
+  if(checkSession()){
+    // Carga pedidos en paralelo con records
+    loadPedidos();
+  }
+  loadRecords();
+  render();
+  setTimeout(()=>{ if(state.user) weeklyBackup(false); }, 3000);
+}
+initCoeCot();
 </script>
 </body>
 </html>
